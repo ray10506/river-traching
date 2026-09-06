@@ -190,6 +190,12 @@ interface RouteMarker {
   name: string;
 }
 
+interface NearbyAnchor {
+  lat: number
+  lon: number
+  pts?: [number, number][]
+}
+
 const props = withDefaults(
   defineProps<{
     canyons?: Canyon[];
@@ -198,16 +204,18 @@ const props = withDefaults(
     routeTrack: RouteTrack | null;
     canyonRouteMarkers: RouteMarker[];
     selectedRouteId: string | null;
+    nearbyAnchor: NearbyAnchor | null;
   }>(),
-  { canyons: () => [] },
+  { canyons: () => [], nearbyAnchor: null },
 );
 
 const emit = defineEmits<{
   selectRoute: [id: string];
-  selectWaterStation: [station: WaterStation];
+  selectWaterStation: [station: WaterStation, distance: number | undefined];
   selectRainfallStation: [
     station: RainfallStation,
     pos: { x: number; y: number },
+    distance: number | undefined,
   ];
 }>();
 
@@ -368,8 +376,27 @@ const rainfallStationIcon = L.divIcon({
   iconAnchor: [14, 26],
 });
 
+function nearestDistKm(lat: number, lon: number, anchor: NearbyAnchor): number {
+  // Always check the anchor GPS point itself (entry/exit point), then sampled GPX pts.
+  // ponytail: linear scan over sampled track pts (≤200), fast enough
+  const pts: [number, number][] = [[anchor.lat, anchor.lon], ...(anchor.pts ?? [])];
+  const target = L.latLng(lat, lon);
+  return pts.reduce((min, [pLat, pLon]) => Math.min(min, L.latLng(pLat, pLon).distanceTo(target) / 1000), Infinity);
+}
+
+function filterByAnchor<T extends { lat: number; lon: number }>(
+  items: T[],
+  anchor: NearbyAnchor | null,
+): { item: T; dist: number | undefined }[] {
+  if (!anchor) return items.map(item => ({ item, dist: undefined }));
+  const withDist = items.map(item => ({ item, dist: nearestDistKm(item.lat, item.lon, anchor) }));
+  const in10 = withDist.filter(x => x.dist <= 10);
+  return (in10.length ? in10 : withDist.filter(x => x.dist <= 20));
+}
+
 function renderWaterStations() {
   if (!map) return;
+  waterStationLayer?.remove();
   waterStationLayer = L.markerClusterGroup({
     maxClusterRadius: 80,
     iconCreateFunction(cluster) {
@@ -382,15 +409,14 @@ function renderWaterStations() {
       });
     },
   });
-  (waterStations as WaterStation[]).forEach((s) => {
+  filterByAnchor(waterStations as WaterStation[], props.nearbyAnchor).forEach(({ item: s, dist }) => {
+    const label = dist != null ? `${s.name}（${s.river}） · ${dist.toFixed(1)} km` : `${s.name}（${s.river}）`;
     L.marker([s.lat, s.lon], { icon: waterStationIcon })
       .bindTooltip(
-        Object.assign(document.createElement("span"), {
-          textContent: `${s.name}（${s.river}）`,
-        }),
+        Object.assign(document.createElement("span"), { textContent: label }),
         { direction: "top", offset: [0, -6] },
       )
-      .on("click", () => emit("selectWaterStation", s))
+      .on("click", () => emit("selectWaterStation", s, dist))
       .addTo(waterStationLayer!);
   });
 }
@@ -398,7 +424,7 @@ function renderWaterStations() {
 watch(showWaterStations, (show) => {
   if (!map) return;
   if (show) {
-    if (!waterStationLayer) renderWaterStations();
+    if (!waterStationLayer) renderWaterStations(); // lazy build; anchor re-renders are driven by nearbyAnchor watcher
     waterStationLayer?.addTo(map);
   } else {
     waterStationLayer?.remove();
@@ -407,6 +433,7 @@ watch(showWaterStations, (show) => {
 
 function renderRainfallStations() {
   if (!map) return;
+  rainfallStationLayer?.remove();
   rainfallStationLayer = L.markerClusterGroup({
     maxClusterRadius: 80,
     iconCreateFunction(cluster) {
@@ -419,19 +446,14 @@ function renderRainfallStations() {
       });
     },
   });
-  rainfallStations.forEach((s) => {
+  filterByAnchor(rainfallStations, props.nearbyAnchor).forEach(({ item: s, dist }) => {
+    const label = dist != null ? `${s.name}（${s.county}${s.town}） · ${dist.toFixed(1)} km` : `${s.name}（${s.county}${s.town}）`;
     L.marker([s.lat, s.lon], { icon: rainfallStationIcon })
-      .bindTooltip(`${s.name}（${s.county}${s.town}）`, {
-        direction: "top",
-        offset: [0, -6],
-      })
+      .bindTooltip(label, { direction: "top", offset: [0, -6] })
       .on("click", (e: L.LeafletMouseEvent) => {
         const rect = document.getElementById("map")!.getBoundingClientRect();
         const pt = map!.latLngToContainerPoint(e.latlng);
-        emit("selectRainfallStation", s, {
-          x: rect.left + pt.x,
-          y: rect.top + pt.y,
-        });
+        emit("selectRainfallStation", s, { x: rect.left + pt.x, y: rect.top + pt.y }, dist);
       })
       .addTo(rainfallStationLayer!);
   });
@@ -446,6 +468,45 @@ watch(showRainfallStations, (show) => {
     rainfallStationLayer?.remove();
   }
 });
+
+// Track whether we auto-enabled each layer so we can restore state on route close.
+let autoEnabledWater = false;
+let autoEnabledRain = false;
+
+// When a route is selected: auto-enable both station layers with distance filter.
+// When deselected: turn off only the layers we auto-enabled, then rebuild unfiltered.
+// Extracted so onMounted can call it for URL-restored routes (watcher fires too early).
+function syncNearbyAnchor(anchor: NearbyAnchor | null) {
+  if (!map) return;
+  if (anchor) {
+    // Only auto-enable if the filter actually yields stations within range
+    const hasWater = filterByAnchor(waterStations as WaterStation[], anchor).length > 0;
+    const hasRain = filterByAnchor(rainfallStations, anchor).length > 0;
+    if (hasWater && !showWaterStations.value) { showWaterStations.value = true; autoEnabledWater = true; }
+    if (hasRain && !showRainfallStations.value) { showRainfallStations.value = true; autoEnabledRain = true; }
+  } else {
+    // Route closed — restore the state that was in place before we intervened
+    if (autoEnabledWater) { showWaterStations.value = false; autoEnabledWater = false; }
+    if (autoEnabledRain) { showRainfallStations.value = false; autoEnabledRain = false; }
+  }
+  // Rebuild both layers to apply/remove the distance filter.
+  // renderWaterStations/renderRainfallStations each call .remove() internally before rebuilding.
+  if (showWaterStations.value) {
+    renderWaterStations();
+    waterStationLayer?.addTo(map);
+  } else {
+    waterStationLayer?.remove();
+    waterStationLayer = null;
+  }
+  if (showRainfallStations.value) {
+    renderRainfallStations();
+    rainfallStationLayer?.addTo(map);
+  } else {
+    rainfallStationLayer?.remove();
+    rainfallStationLayer = null;
+  }
+}
+watch(() => props.nearbyAnchor, syncNearbyAnchor);
 
 function onTileChange(e: Event) {
   if (!map) return;
@@ -526,6 +587,8 @@ onMounted(() => {
 
   renderMarkers();
   renderRouteMarkers(props.canyonRouteMarkers, props.selectedRouteId);
+  // Handle routes restored from URL (?route=...) — watcher fires before map exists
+  syncNearbyAnchor(props.nearbyAnchor);
 });
 
 watch(() => props.canyons, renderMarkers);

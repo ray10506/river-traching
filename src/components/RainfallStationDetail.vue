@@ -7,12 +7,15 @@
         <div class="header-left">
           <span class="name">{{ station.name }}</span>
           <span class="station-id">({{ station.station_id }})</span>
+          <span v-if="distance != null" class="dist-badge">{{ distance.toFixed(1) }} km</span>
         </div>
         <button class="close-btn" @click="$emit('close')">✕</button>
       </div>
 
       <div class="badge-row">
-        <span class="badge">{{ locale === 'en' ? 'Live' : '即時' }}</span>
+        <button :class="['period-btn', { active: mode === 'live' }]" @click="selectMode('live')">{{ locale === 'en' ? 'Live' : '即時' }}</button>
+        <button :class="['period-btn', { active: mode === '7' }]" @click="selectMode('7')">{{ locale === 'en' ? '7 days' : '近 7 天' }}</button>
+        <button :class="['period-btn', { active: mode === '14' }]" @click="selectMode('14')">{{ locale === 'en' ? '14 days' : '近 14 天' }}</button>
       </div>
 
       <div class="popup-body">
@@ -21,12 +24,17 @@
           <div class="state error">{{ error }}</div>
           <button class="retry-btn" @click="fetchData">{{ locale === 'en' ? 'Retry' : '重試' }}</button>
         </template>
-        <template v-else-if="data">
+        <template v-else-if="mode === 'live' && data">
           <div class="row" v-for="item in rainItems" :key="item.label">
             <span class="row-label">{{ item.label }}</span>
             <span class="row-value">{{ item.value }}</span>
           </div>
           <div v-if="data.updateTime" class="update-time">{{ data.updateTime }} {{ locale === 'en' ? 'updated' : '更新' }}</div>
+        </template>
+        <template v-else-if="currentHistory">
+          <div class="history-total">{{ currentHistory.total }} {{ currentHistory.unit }}</div>
+          <div class="history-range">{{ currentHistory.from }} - {{ currentHistory.to }}</div>
+          <div class="update-time">{{ currentHistory.daysIncluded }} {{ locale === 'en' ? 'days included' : '日資料' }}</div>
         </template>
       </div>
     </div>
@@ -36,11 +44,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import type { RainfallStation } from '../lib/rainfall'
-import { fetchRainfallData, type RainfallData } from '../lib/rainfallData'
+import { fetchRainfallData, fetchRainfallHistory, type RainfallData, type RainfallHistoryData } from '../lib/rainfallData'
 import { clamp } from '../lib/clamp'
 import { locale } from '../lib/locale'
 
-const CARD_W = 200
+const CARD_W = 240
 const CARD_OFFSET = 28
 const MARGIN = 12
 const ESTIMATED_H = 360
@@ -48,12 +56,15 @@ const ESTIMATED_H = 360
 const props = defineProps<{
   station: RainfallStation
   pos: { x: number; y: number }
+  distance?: number
 }>()
 defineEmits<{ close: [] }>()
 
 const loading = ref(true)
 const error = ref<string | null>(null)
 const data = ref<RainfallData | null>(null)
+const mode = ref<'live' | '7' | '14'>('live')
+const historyCache = ref<Record<'7' | '14', RainfallHistoryData | null>>({ '7': null, '14': null })
 
 const arrowSide = computed(() => {
   return props.pos.x + CARD_OFFSET + CARD_W + MARGIN <= window.innerWidth ? 'arrow-left' : 'arrow-right'
@@ -92,16 +103,26 @@ const rainItems = computed(() => {
   ]
 })
 
+const currentHistory = computed(() => mode.value === 'live' ? null : historyCache.value[mode.value])
+
 async function fetchData() {
   loading.value = true
   error.value = null
   try {
-    data.value = await fetchRainfallData(props.station.station_id)
+    if (mode.value === 'live') data.value = await fetchRainfallData(props.station.station_id)
+    else historyCache.value[mode.value] = await fetchRainfallHistory(props.station.station_id, Number(mode.value) as 7 | 14)
   } catch (e) {
     error.value = e instanceof Error ? e.message : (locale.value === 'en' ? 'Unable to load rainfall data' : '雨量資料暫時無法載入')
   } finally {
     loading.value = false
   }
+}
+
+function selectMode(next: 'live' | '7' | '14') {
+  mode.value = next
+  error.value = null // clear stale error from previous mode before checking cache
+  const cached = next === 'live' ? data.value : historyCache.value[next]
+  if (!cached) fetchData()
 }
 
 onMounted(fetchData)
@@ -174,6 +195,15 @@ onMounted(fetchData)
   color: #888;
 }
 
+.dist-badge {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: #1a2a1a;
+  color: #5ecb6f;
+}
+
 .close-btn {
   background: none;
   border: none;
@@ -189,15 +219,26 @@ onMounted(fetchData)
 .close-btn:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
 
 .badge-row {
+  display: flex;
+  gap: 4px;
   padding: 0 12px 8px;
 }
 
-.badge {
+.period-btn {
+  flex: 1;
   font-size: 0.7rem;
-  border: 1px solid #5b9cf6;
-  color: #5b9cf6;
+  border: 1px solid #2a2a4a;
+  background: #181832;
+  color: #aaa;
   border-radius: 4px;
-  padding: 1px 6px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+.period-btn.active {
+  border-color: #5b9cf6;
+  color: #fff;
+  background: #1e2d6b;
 }
 
 .popup-body {
@@ -216,6 +257,21 @@ onMounted(fetchData)
 
 .row-label { color: #888; }
 .row-value { font-weight: 600; color: #e0e0e0; }
+
+.history-total {
+  color: #fff;
+  font-size: 1.7rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 12px 0 2px;
+}
+
+.history-range {
+  color: #aaa;
+  font-size: 0.75rem;
+  text-align: center;
+  padding-bottom: 6px;
+}
 
 .state {
   font-size: 0.875rem;

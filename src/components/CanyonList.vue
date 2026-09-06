@@ -1,6 +1,7 @@
 <template>
   <aside class="sidebar">
     <div class="title-row">
+      <img src="/favicon-sidebar.png" class="sidebar-logo" alt="" />
       <h2 class="title">{{ locale === 'en' ? 'Taiwan Canyoning' : '台灣溪降地圖' }}</h2>
       <button class="close-sidebar-btn" @click="$emit('close')" :title="locale === 'en' ? 'Collapse' : '收合'">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
@@ -30,7 +31,10 @@
             <div class="canyon-right">
               <div class="canyon-name-row">
                 <span class="canyon-name">{{ route.name }}</span>
-                <span class="canyon-drop">{{ route.max_drop || '' }}</span>
+                <span v-if="route.max_drop" class="canyon-drop">
+                  <span class="drop-label">{{ locale === 'en' ? 'Drop' : '瀑高' }}</span>
+                  {{ route.max_drop }}
+                </span>
               </div>
               <div class="grade-badges">
                 <span v-if="vPart(route.grading)" :class="['v-pill', vGradeClass(vPart(route.grading))]">{{ vPart(route.grading) }}</span>
@@ -124,14 +128,25 @@ function starsPart(grading: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 16px 16px 12px;
   border-bottom: 1px solid #2a2a4a;
+}
+
+.sidebar-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .title {
   font-size: 1.1rem;
   font-weight: 700;
   color: #6c8ef5;
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .route-filters {
@@ -361,11 +376,20 @@ function starsPart(grading: string): string {
 }
 
 .canyon-drop {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   flex-shrink: 0;
   font-size: 0.75rem;
   font-weight: 700;
   color: #f5a030;
   line-height: 1.3;
+}
+
+.drop-label {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: #9aa3b8;
 }
 
 .canyon-name {

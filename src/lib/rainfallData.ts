@@ -11,6 +11,15 @@ export interface RainfallData {
   updateTime: string
 }
 
+export interface RainfallHistoryData {
+  days: 7 | 14
+  total: number
+  unit: string
+  from: string
+  to: string
+  daysIncluded: number
+}
+
 export async function fetchRainfallData(stationId: string): Promise<RainfallData> {
   const res = await fetch(`/api/cwa/rainfall/${stationId}`)
   if (!res.ok) throw new Error(`雨量 API 錯誤 (${res.status})`)
@@ -42,4 +51,11 @@ export async function fetchRainfallData(stationId: string): Promise<RainfallData
     past3days: get('Past3days'),
     updateTime,
   }
+}
+
+export async function fetchRainfallHistory(stationId: string, days: 7 | 14): Promise<RainfallHistoryData> {
+  const res = await fetch(`/api/cwa/rainfall-history/${stationId}?days=${days}`)
+  if (res.status === 404) throw new Error('此站暫無歷史雨量資料')
+  if (!res.ok) throw new Error(`歷史雨量 API 錯誤 (${res.status})`)
+  return res.json()
 }

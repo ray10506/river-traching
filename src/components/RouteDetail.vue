@@ -54,14 +54,25 @@
               <a v-if="d.gpx_track" class="row-value coord gps-link" :href="mapsUrl(d.gps.trim())" target="_blank" rel="noopener">{{ d.gps }} ↗</a>
               <span v-else class="row-value coord">{{ d.gps }}</span>
             </div>
-            <div v-if="d.note" class="row">
+            <div v-if="d.gpx_track || noteGpxLinks.length" class="row">
+              <span class="row-label">GPX</span>
+              <span class="row-value gpx-row-value">
+                <button v-if="d.gpx_track" class="gpx-dl-btn" @click="downloadGpx">
+                  {{ locale === 'en' ? '⬇ Download GPX' : '⬇ 下載 GPX' }}
+                </button>
+                <a v-for="link in noteGpxLinks" :key="link" :href="link" target="_blank" rel="noopener" class="note-link">
+                  {{ locale === 'en' ? 'Route GPX' : '路線 gpx' }} ↗
+                </a>
+              </span>
+            </div>
+            <div v-if="noteHasVideo || noteHasText" class="row">
               <span class="row-label">{{ locale === 'en' ? 'Notes' : '附註' }}</span>
               <span class="row-value">
                 <template v-for="(seg, i) in parseNote(d.note)" :key="i">
-                  <a v-if="seg.isUrl" :href="seg.text" target="_blank" rel="noopener" class="note-link">
-                    {{ seg.isYoutube ? (locale === 'en' ? 'Route Video' : '路線影片') : (locale === 'en' ? 'Route GPX' : '路線 gpx') }} ↗
+                  <a v-if="seg.isUrl && seg.isYoutube" :href="seg.text" target="_blank" rel="noopener" class="note-link">
+                    {{ locale === 'en' ? 'Route Video' : '路線影片' }} ↗
                   </a>
-                  <span v-else>{{ seg.text }}</span>
+                  <span v-else-if="!seg.isUrl">{{ seg.text }}</span>
                 </template>
               </span>
             </div>
@@ -284,6 +295,11 @@ const maxEle = computed(() =>
   ?? (typeof d.value.elevation === 'number' && d.value.elevation > 0 ? d.value.elevation : null)
 )
 
+const noteSegs = computed(() => d.value.note ? parseNote(d.value.note) : [])
+const noteGpxLinks = computed(() => noteSegs.value.filter(s => s.isUrl && !s.isYoutube).map(s => s.text))
+const noteHasVideo = computed(() => noteSegs.value.some(s => s.isUrl && s.isYoutube))
+const noteHasText  = computed(() => noteSegs.value.some(s => !s.isUrl && s.text.trim()))
+
 const elevationData = computed(() => {
   if (props.item.kind !== 'route' || !d.value.gpx_track) return null
   try {
@@ -329,6 +345,49 @@ const elePolygon = computed(() => {
   })
   return `${pts.join(' ')} ${W},${padT + H} 0,${padT + H}`
 })
+
+function downloadGpx() {
+  const route = d.value
+  if (!route.gpx_track) return
+
+  const name = route.name ?? 'route'
+  const parsed: number[][] | number[][][] = JSON.parse(route.gpx_track)
+  const isSegmented = parsed.length > 0 && Array.isArray(parsed[0][0])
+  const segments: number[][][] = isSegmented ? (parsed as number[][][]) : [parsed as number[][]]
+
+  const wpts: any[] = route.gpx_waypoints ? JSON.parse(route.gpx_waypoints) : []
+
+  const trksegs = segments.map(seg => {
+    const pts = seg.map((p: number[]) => {
+      const ele = p[2] != null ? `\n        <ele>${p[2].toFixed(1)}</ele>` : ''
+      return `      <trkpt lat="${p[0]}" lon="${p[1]}">${ele}\n      </trkpt>`
+    }).join('\n')
+    return `    <trkseg>\n${pts}\n    </trkseg>`
+  }).join('\n')
+
+  const escXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+  const wptXml = wpts.map((w: any) => {
+    const ele = w.ele != null ? `\n    <ele>${(+w.ele).toFixed(1)}</ele>` : ''
+    const wname = w.name ? `\n    <name>${escXml(w.name)}</name>` : ''
+    return `  <wpt lat="${w.lat}" lon="${w.lon}">${ele}${wname}\n  </wpt>`
+  }).join('\n')
+
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Taiwan Canyoning Map" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>${escXml(name)}</name></metadata>
+${wptXml ? wptXml + '\n' : ''}  <trk>
+    <name>${escXml(name)}</name>
+${trksegs}
+  </trk>
+</gpx>`
+
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }))
+  a.download = `${name}.gpx`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
 
 </script>
 
@@ -435,6 +494,25 @@ const elePolygon = computed(() => {
 
 .gps-link { text-decoration: none; }
 .gps-link:hover { text-decoration: underline; }
+
+.gpx-row-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gpx-dl-btn {
+  background: none;
+  border: 1px solid #3a3a5a;
+  border-radius: 6px;
+  color: #6c8ef5;
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.gpx-dl-btn:hover { border-color: #6c8ef5; background: #1e2d6b; }
 
 .note-link {
   color: #6c8ef5;

@@ -49,6 +49,12 @@
       </select>
     </div>
 
+    <!-- GPX filter -->
+    <label class="gpx-toggle">
+      <input type="checkbox" v-model="gpx" />
+      <span class="gpx-label">{{ locale === 'en' ? 'Has GPX track' : '有完整 GPX 路線' }}</span>
+    </label>
+
     <button class="clear-btn" @click="emit('clearAll')">
       {{ locale === 'en' ? 'Clear All Filters' : '清除全部篩選' }}
     </button>
@@ -80,6 +86,7 @@ const v = defineModel<string>('v', { required: true })
 const a = defineModel<string>('a', { required: true })
 const t = defineModel<string>('t', { required: true })
 const drop = defineModel<string>('drop', { required: true })
+const gpx = defineModel<boolean>('gpx', { required: true })
 
 const inputRef = ref<HTMLInputElement | null>(null)
 onMounted(() => nextTick(() => inputRef.value?.focus()))
@@ -202,6 +209,30 @@ const tOptions = ['I','II','III','IV','V','VI']
 .region-btn:hover { border-color: #6c8ef5; color: #ccc; }
 .region-btn.active { background: #6c8ef5; border-color: #6c8ef5; color: #fff; font-weight: 600; }
 
+
+.gpx-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.gpx-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #6c8ef5;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.gpx-label {
+  font-size: 0.8rem;
+  color: #aaa;
+  user-select: none;
+}
+
+.gpx-toggle:hover .gpx-label { color: #ddd; }
 
 .clear-btn {
   width: 100%;

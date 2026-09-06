@@ -6,6 +6,7 @@
           <div class="header-left">
             <span class="station-name">{{ station.name }}</span>
             <span class="river-badge">{{ station.river || '—' }}</span>
+            <span v-if="distance != null" class="dist-badge">{{ distance.toFixed(1) }} km</span>
             <span class="period-badge">{{ locale === 'en' ? 'Live' : '即時' }}</span>
           </div>
           <button class="close-btn" @click="$emit('close')">✕</button>
@@ -51,7 +52,7 @@ import { fetchWaterLevel, type WaterLevelSeries, type WaterStation } from '../li
 import type { ChartSeries } from '../lib/chart'
 import { locale } from '../lib/locale'
 
-const props = withDefaults(defineProps<{ station: WaterStation; days?: number }>(), {
+const props = withDefaults(defineProps<{ station: WaterStation; days?: number; distance?: number }>(), {
   days: 7,
 })
 defineEmits<{ close: [] }>()
@@ -247,6 +248,15 @@ const chartSeries = computed<ChartSeries[]>(() => {
   font-weight: 600;
   background: #2a2a4a;
   color: #aaa;
+}
+
+.dist-badge {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: #1a2a1a;
+  color: #5ecb6f;
 }
 
 .close-btn {
