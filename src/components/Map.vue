@@ -225,8 +225,8 @@ let focusMarker: L.Marker | null = null;
 let trackLayer: L.Polyline | null = null;
 let waypointMarkers: L.Marker[] = [];
 let routeMarkerLayers: L.Marker[] = [];
-let waterStationLayer: L.MarkerClusterGroup | null = null;
-let rainfallStationLayer: L.MarkerClusterGroup | null = null;
+let waterStationLayer: L.LayerGroup | null = null;
+let rainfallStationLayer: L.LayerGroup | null = null;
 let canyonCluster: L.MarkerClusterGroup | null = null;
 let routeCluster: L.MarkerClusterGroup | null = null;
 
@@ -397,18 +397,20 @@ function filterByAnchor<T extends { lat: number; lon: number }>(
 function renderWaterStations() {
   if (!map) return;
   waterStationLayer?.remove();
-  waterStationLayer = L.markerClusterGroup({
-    maxClusterRadius: 80,
-    iconCreateFunction(cluster) {
-      const count = cluster.getChildCount();
-      return L.divIcon({
-        className: "",
-        html: `<div class="water-cluster">${count}</div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
+  waterStationLayer = props.nearbyAnchor
+    ? L.layerGroup()
+    : L.markerClusterGroup({
+        maxClusterRadius: 80,
+        iconCreateFunction(cluster) {
+          const count = cluster.getChildCount();
+          return L.divIcon({
+            className: "",
+            html: `<div class="water-cluster">${count}</div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+          });
+        },
       });
-    },
-  });
   filterByAnchor(waterStations as WaterStation[], props.nearbyAnchor).forEach(({ item: s, dist }) => {
     const label = dist != null ? `${s.name}（${s.river}） · ${dist.toFixed(1)} km` : `${s.name}（${s.river}）`;
     L.marker([s.lat, s.lon], { icon: waterStationIcon })
@@ -434,18 +436,20 @@ watch(showWaterStations, (show) => {
 function renderRainfallStations() {
   if (!map) return;
   rainfallStationLayer?.remove();
-  rainfallStationLayer = L.markerClusterGroup({
-    maxClusterRadius: 80,
-    iconCreateFunction(cluster) {
-      const count = cluster.getChildCount();
-      return L.divIcon({
-        className: "",
-        html: `<div class="rainfall-cluster">${count}</div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
+  rainfallStationLayer = props.nearbyAnchor
+    ? L.layerGroup()
+    : L.markerClusterGroup({
+        maxClusterRadius: 80,
+        iconCreateFunction(cluster) {
+          const count = cluster.getChildCount();
+          return L.divIcon({
+            className: "",
+            html: `<div class="rainfall-cluster">${count}</div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+          });
+        },
       });
-    },
-  });
   filterByAnchor(rainfallStations, props.nearbyAnchor).forEach(({ item: s, dist }) => {
     const label = dist != null ? `${s.name}（${s.county}${s.town}） · ${dist.toFixed(1)} km` : `${s.name}（${s.county}${s.town}）`;
     L.marker([s.lat, s.lon], { icon: rainfallStationIcon })

@@ -1,5 +1,5 @@
 <template>
-  <div class="chart-wrap">
+  <div class="chart-wrap" :style="heightPx ? { height: `${heightPx}px`, minHeight: 0, maxHeight: 'none' } : undefined">
     <canvas ref="canvasRef"></canvas>
   </div>
 </template>
@@ -25,25 +25,39 @@ Tooltip.positioners.primaryPoint = (items) => {
   return { x: item.element.x, y: item.element.y }
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   series: ChartSeries[]
   yLabel?: string
-}>()
+  type?: 'line' | 'bar'
+  heightPx?: number
+}>(), { type: 'line' })
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let chart: Chart | null = null
 
+// Bar mode plots one point per day — no hour to show.
 function formatLabel(iso: string) {
   const d = new Date(iso)
-  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+  const date = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+  return props.type === 'bar' ? date : `${date} ${String(d.getHours()).padStart(2, '0')}:00`
 }
 
 function formatTooltipTitle(iso: string) {
   const d = new Date(iso)
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+  const date = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+  return props.type === 'bar' ? date : `${date} ${String(d.getHours()).padStart(2, '0')}:00`
 }
 
 function computeYRange(series: ChartSeries[]) {
+  // Bars imply a zero baseline; padding below the data min (as line charts get) would misread as negative values.
+  if (props.type === 'bar') {
+    let dataMax = 0
+    for (const p of series[0]?.points ?? []) {
+      if (p.value != null && p.value > dataMax) dataMax = p.value
+    }
+    return { min: 0, max: Math.max(dataMax * 1.15, 1) }
+  }
+
   const primary = series.find(s => !s.dashed) ?? series[0]
   let dataMin = Infinity
   let dataMax = -Infinity
@@ -62,22 +76,24 @@ function buildConfig() {
   const labels = props.series[0]?.points.map(p => formatLabel(p.time)) ?? []
 
   return {
-    type: 'line' as const,
+    type: props.type,
     data: {
       labels,
-      datasets: props.series.map(s => ({
-        label: s.label,
-        data: s.points.map(p => p.value),
-        borderColor: s.color,
-        backgroundColor: s.color,
-        borderDash: s.dashed ? [5, 5] : undefined,
-        pointRadius: 0,
-        pointHitRadius: s.dashed ? 0 : 15,
-        pointHoverRadius: s.dashed ? 0 : 4,
-        borderWidth: s.dashed ? 1 : 2,
-        spanGaps: true,
-        tension: 0.2,
-      })),
+      datasets: props.series.map(s => props.type === 'bar'
+        ? { label: s.label, data: s.points.map(p => p.value), backgroundColor: s.color, borderRadius: 4, maxBarThickness: 28 }
+        : {
+            label: s.label,
+            data: s.points.map(p => p.value),
+            borderColor: s.color,
+            backgroundColor: s.color,
+            borderDash: s.dashed ? [5, 5] : undefined,
+            pointRadius: 0,
+            pointHitRadius: s.dashed ? 0 : 15,
+            pointHoverRadius: s.dashed ? 0 : 4,
+            borderWidth: s.dashed ? 1 : 2,
+            spanGaps: true,
+            tension: 0.2,
+          }),
     },
     options: {
       responsive: true,
@@ -122,6 +138,11 @@ function render() {
 onMounted(render)
 watch(() => props.series, render, { deep: true })
 onUnmounted(() => chart?.destroy())
+
+// Native canvas export — no need to redraw the chart a second time for a PNG.
+defineExpose({
+  toBlob: (cb: BlobCallback) => canvasRef.value?.toBlob(cb, 'image/png'),
+})
 </script>
 
 <style scoped>

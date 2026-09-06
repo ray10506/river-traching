@@ -16,7 +16,8 @@
 
     <!-- 溪降路線列表 -->
     <div v-if="!routesLoading" class="list-count">
-      {{ canyonRoutes.length }} {{ locale === 'en' ? 'routes' : '條路線' }}
+      <span>{{ canyonRoutes.length }} {{ locale === 'en' ? 'routes' : '條路線' }}</span>
+      <span class="sort-note">{{ locale === 'en' ? 'Easiest first' : '由易到難' }}</span>
     </div>
     <ul ref="routeListRef" class="canyon-list">
       <li v-if="routesLoading" class="empty">{{ locale === 'en' ? 'Loading...' : '載入中...' }}</li>
@@ -97,7 +98,7 @@ const routeListRef = ref<HTMLElement | null>(null)
 watch(() => props.selectedRouteId, async (id) => {
   if (!id || !routeListRef.value) return
   await nextTick()
-  routeListRef.value.querySelector('.canyon-item.active')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  routeListRef.value.querySelector('.canyon-item.active')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 })
 
 // Grade component parsers — each token renders as its own pill
@@ -344,6 +345,16 @@ function starsPart(grading: string): string {
   color: #999;
   border-bottom: 1px solid #2a2a4a;
   flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-note {
+  color: #6c8ef5;
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .canyon-item {

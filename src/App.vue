@@ -62,7 +62,7 @@
           :nearby-anchor="nearbyAnchor"
           @select-route="onSelectRoute"
           @select-water-station="
-            (s, d) => (waterStationDetail = { station: s, days: 1, distance: d })
+            (s, d) => (waterStationDetail = { station: s, days: 7, distance: d })
           "
           @select-rainfall-station="
             (s, p, d) => (rainfallStationDetail = { station: s, pos: p, distance: d })
@@ -852,10 +852,13 @@ const activeFilters = computed(() => {
   transform: translateX(-50%);
   display: flex;
   gap: 8px;
-  background: #f5f0e8;
+  background: rgba(18, 18, 42, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(42, 42, 74, 0.8);
   border-radius: 50px;
   padding: 8px 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
   z-index: 1050;
 }
 
@@ -872,7 +875,7 @@ const activeFilters = computed(() => {
   gap: 3px;
   background: none;
   border: none;
-  color: #666;
+  color: #888;
   font-size: 0.65rem;
   font-weight: 500;
   cursor: pointer;
@@ -882,12 +885,12 @@ const activeFilters = computed(() => {
   letter-spacing: 0.3px;
 }
 .bar-btn:hover {
-  color: #333;
-  background: rgba(0, 0, 0, 0.06);
+  color: #d0d0e8;
+  background: rgba(255, 255, 255, 0.08);
 }
 .bar-btn.active {
   color: #6c8ef5;
-  background: rgba(108, 142, 245, 0.12);
+  background: rgba(108, 142, 245, 0.15);
 }
 .bar-btn-icon {
   position: relative;
@@ -910,6 +913,6 @@ const activeFilters = computed(() => {
   align-items: center;
   justify-content: center;
   padding: 0 3px;
-  border: 2px solid #f5f0e8;
+  border: 2px solid rgba(18, 18, 42, 0.92);
 }
 </style>

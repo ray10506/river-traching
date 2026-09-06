@@ -2,12 +2,12 @@
   <Teleport to="body">
     <div class="card-overlay" @click="$emit('close')"></div>
     <div class="popup" :style="popupStyle">
-      <div class="arrow" :class="arrowSide"></div>
+      <div class="arrow" :class="arrowSide" :style="arrowStyle"></div>
       <div class="popup-header">
         <div class="header-left">
           <span class="name">{{ station.name }}</span>
           <span class="station-id">({{ station.station_id }})</span>
-          <span v-if="distance != null" class="dist-badge">{{ distance.toFixed(1) }} km</span>
+          <span v-if="distance != null" class="dist-badge">{{ locale === 'en' ? 'From route' : '距路線' }} {{ distance.toFixed(1) }} km</span>
         </div>
         <button class="close-btn" @click="$emit('close')">✕</button>
       </div>
@@ -32,8 +32,21 @@
           <div v-if="data.updateTime" class="update-time">{{ data.updateTime }} {{ locale === 'en' ? 'updated' : '更新' }}</div>
         </template>
         <template v-else-if="currentHistory">
-          <div class="history-total">{{ currentHistory.total }} {{ currentHistory.unit }}</div>
-          <div class="history-range">{{ currentHistory.from }} - {{ currentHistory.to }}</div>
+          <div class="history-total">
+            <span>{{ currentHistory.total }}</span>
+            <small>{{ currentHistory.unit }}</small>
+          </div>
+          <div class="history-actions">
+            <div class="history-range">{{ currentHistory.from }} - {{ currentHistory.to }}</div>
+            <button class="download-btn" @click="downloadHistoryImage">{{ locale === 'en' ? 'PNG' : '下載 PNG' }}</button>
+          </div>
+          <WaterLevelChart
+            ref="chartRef"
+            :series="historySeries"
+            type="bar"
+            :height-px="180"
+            :y-label="locale === 'en' ? 'Daily accumulated rainfall (mm)' : '每日累積雨量 (mm)'"
+          />
           <div class="update-time">{{ currentHistory.daysIncluded }} {{ locale === 'en' ? 'days included' : '日資料' }}</div>
         </template>
       </div>
@@ -47,11 +60,16 @@ import type { RainfallStation } from '../lib/rainfall'
 import { fetchRainfallData, fetchRainfallHistory, type RainfallData, type RainfallHistoryData } from '../lib/rainfallData'
 import { clamp } from '../lib/clamp'
 import { locale } from '../lib/locale'
+import WaterLevelChart from './WaterLevelChart.vue'
+import type { ChartSeries } from '../lib/chart'
 
-const CARD_W = 240
+const LIVE_CARD_W = 240
+const HISTORY_CARD_W = 420
 const CARD_OFFSET = 28
-const MARGIN = 12
-const ESTIMATED_H = 360
+const MARGIN = 16
+const ICON_CENTER_OFFSET_Y = 13
+const ARROW_HALF_H = 8
+const ARROW_SAFE_PAD = 24
 
 const props = defineProps<{
   station: RainfallStation
@@ -66,27 +84,48 @@ const data = ref<RainfallData | null>(null)
 const mode = ref<'live' | '7' | '14'>('live')
 const historyCache = ref<Record<'7' | '14', RainfallHistoryData | null>>({ '7': null, '14': null })
 
+const popupWidth = computed(() => {
+  const wanted = mode.value === 'live' ? LIVE_CARD_W : HISTORY_CARD_W
+  return Math.min(wanted, window.innerWidth - MARGIN * 2)
+})
+
+const estimatedHeight = computed(() => {
+  if (loading.value || error.value) return 160
+  return mode.value === 'live' ? 430 : 520
+})
+
 const arrowSide = computed(() => {
-  return props.pos.x + CARD_OFFSET + CARD_W + MARGIN <= window.innerWidth ? 'arrow-left' : 'arrow-right'
+  return props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth ? 'arrow-left' : 'arrow-right'
+})
+
+const popupLayout = computed(() => {
+  const width = popupWidth.value
+  const height = Math.min(estimatedHeight.value, Math.max(120, window.innerHeight - MARGIN * 2))
+  const onRight = props.pos.x + CARD_OFFSET + width + MARGIN <= window.innerWidth
+  let left = onRight ? props.pos.x + CARD_OFFSET : props.pos.x - CARD_OFFSET - width
+  let top = props.pos.y - ICON_CENTER_OFFSET_Y - 44
+
+  left = clamp(left, MARGIN, window.innerWidth - width - MARGIN)
+  top = clamp(top, MARGIN, window.innerHeight - height - MARGIN)
+
+  const targetY = props.pos.y - ICON_CENTER_OFFSET_Y
+  const arrowTop = clamp(targetY - top - ARROW_HALF_H, ARROW_SAFE_PAD, height - ARROW_SAFE_PAD)
+
+  return { left, top, width, height, arrowTop }
 })
 
 const popupStyle = computed(() => {
-  const onRight = props.pos.x + CARD_OFFSET + CARD_W + MARGIN <= window.innerWidth
-  let left = onRight ? props.pos.x + CARD_OFFSET : props.pos.x - CARD_OFFSET - CARD_W
-  // iconAnchor=[14,26] → anchor at bottom; icon centre is 13px above anchor
-  // arrow css top:36px, arrow height 8px → arrow centre at cardTop+44
-  // want cardTop+44 = pos.y-13  →  cardTop = pos.y-57
-  let top = props.pos.y - 57
-
-  left = clamp(left, MARGIN, window.innerWidth - CARD_W - MARGIN)
-  top = clamp(top, MARGIN, window.innerHeight - ESTIMATED_H - MARGIN)
-
+  const { left, top, width, height } = popupLayout.value
   return {
     left: `${left}px`,
     top: `${top}px`,
-    width: `${CARD_W}px`,
+    width: `${width}px`,
+    maxHeight: `${height}px`,
+    minHeight: loading.value || error.value ? `${height}px` : undefined,
   }
 })
+
+const arrowStyle = computed(() => ({ top: `${popupLayout.value.arrowTop}px` }))
 
 const rainItems = computed(() => {
   if (!data.value) return []
@@ -104,6 +143,36 @@ const rainItems = computed(() => {
 })
 
 const currentHistory = computed(() => mode.value === 'live' ? null : historyCache.value[mode.value])
+
+const historySeries = computed<ChartSeries[]>(() => {
+  const history = currentHistory.value
+  if (!history?.daily?.length) return []
+  return [{
+    label: history.unit,
+    color: '#5b9cf6',
+    points: history.daily.map(item => ({ time: item.date, value: item.value })),
+  }]
+})
+
+const chartRef = ref<InstanceType<typeof WaterLevelChart> | null>(null)
+
+// ponytail: exported PNG is just the chart canvas, not the station-name/total header the old
+// hand-drawn version baked in. Re-add by drawing an overlay onto the exported blob if that's missed.
+function downloadHistoryImage() {
+  const history = currentHistory.value
+  if (!history) return
+  chartRef.value?.toBlob(blob => {
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${props.station.station_id}-rainfall-${history.days}d.png`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  })
+}
 
 async function fetchData() {
   loading.value = true
@@ -143,6 +212,8 @@ onMounted(fetchData)
   border-radius: 10px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   overflow: visible;
+  display: flex;
+  flex-direction: column;
 }
 
 .arrow {
@@ -243,6 +314,8 @@ onMounted(fetchData)
 
 .popup-body {
   padding: 0 12px 10px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .row {
@@ -262,15 +335,48 @@ onMounted(fetchData)
   color: #fff;
   font-size: 1.7rem;
   font-weight: 700;
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 4px;
   padding: 12px 0 2px;
 }
+
+.history-total small {
+  font-size: 0.75rem;
+  color: #aaa;
+  font-weight: 600;
+}
+
+.history-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 8px;
+}
+
+.download-btn {
+  border: 1px solid #2a2a4a;
+  background: #181832;
+  color: #d6defd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.download-btn:hover {
+  border-color: #5b9cf6;
+  color: #fff;
+}
+
+.download-btn:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
 
 .history-range {
   color: #aaa;
   font-size: 0.75rem;
-  text-align: center;
-  padding-bottom: 6px;
+  min-width: 0;
 }
 
 .state {
@@ -280,6 +386,21 @@ onMounted(fetchData)
   text-align: center;
 }
 .state.error { color: #e05c5c; }
+
+.retry-btn {
+  display: block;
+  margin: 6px auto 10px;
+  padding: 5px 18px;
+  background: none;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.retry-btn:hover        { border-color: #6c8ef5; color: #6c8ef5; }
+.retry-btn:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
 
 .update-time {
   font-size: 0.7rem;

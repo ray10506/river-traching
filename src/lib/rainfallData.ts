@@ -18,6 +18,7 @@ export interface RainfallHistoryData {
   from: string
   to: string
   daysIncluded: number
+  daily: Array<{ date: string; value: number }>
 }
 
 export async function fetchRainfallData(stationId: string): Promise<RainfallData> {

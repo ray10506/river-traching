@@ -2,35 +2,44 @@
   <Teleport to="body">
     <div class="overlay" @click="$emit('close')">
       <div class="panel" @click.stop>
+        <!-- Drag-handle affordance on mobile bottom sheet -->
+        <div class="drag-handle" aria-hidden="true"></div>
         <div class="panel-header">
           <div class="header-left">
             <span class="station-name">{{ station.name }}</span>
             <span class="river-badge">{{ station.river || '—' }}</span>
-            <span v-if="distance != null" class="dist-badge">{{ distance.toFixed(1) }} km</span>
+            <span v-if="distance != null" class="dist-badge">{{ locale === 'en' ? 'From route' : '距路線' }} {{ distance.toFixed(1) }} km</span>
             <span class="period-badge">{{ locale === 'en' ? 'Live' : '即時' }}</span>
           </div>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
         <div class="panel-body">
-          <div class="meta-row">
-            <span>{{ locale === 'en' ? 'ID' : '站號' }} {{ station.id }}</span>
-            <span v-if="station.address">{{ station.address }}</span>
+          <!-- Loading: skeleton shaped like the status card so the user sees where the answer will appear -->
+          <div v-if="loading" class="status-skeleton" aria-label="載入中">
+            <div class="skel-title"></div>
+            <div class="skel-level"></div>
+            <div class="skel-note"></div>
           </div>
 
-          <div v-if="loading" class="state-msg">{{ locale === 'en' ? 'Loading water level...' : '載入水位資料中...' }}</div>
+          <!-- Error: card-shaped container so it sits in the same visual slot as the verdict -->
           <template v-else-if="error">
-            <div class="state-msg error">{{ error }}</div>
+            <div class="status-card status-error-card">
+              <div class="status-title">{{ locale === 'en' ? 'Could not load water level' : '水位資料載入失敗' }}</div>
+              <div class="status-note error-note">{{ error }}</div>
+            </div>
             <button class="retry-btn" @click="load">{{ locale === 'en' ? 'Retry' : '重試' }}</button>
           </template>
+
+          <!-- Data: status card FIRST — the safety verdict is the answer to "should I go?" -->
           <template v-else-if="series">
-            <div v-if="latest != null" class="latest-row">
-              {{ locale === 'en' ? 'Current level' : '目前水位' }} <strong>{{ latest }} m</strong>
-              <span class="latest-time">{{ latestTime }}</span>
-            </div>
-            <div v-if="levelStatus" class="status-card" :class="`status-${levelStatus.tone}`">
-              <div class="status-title">{{ levelStatus.title }}</div>
-              <div class="status-note">{{ levelStatus.note }}</div>
+            <div class="status-card" :class="levelStatus ? `status-${levelStatus.tone}` : 'status-unknown'">
+              <div class="status-title">{{ levelStatus?.title ?? (locale === 'en' ? 'No recent reading' : '無近期水位記錄') }}</div>
+              <div v-if="latest != null" class="status-level-line">
+                <strong class="level-value">{{ latest }} m</strong>
+                <span class="level-time">{{ latestTime }}</span>
+              </div>
+              <div class="status-note">{{ levelStatus?.note ?? (locale === 'en' ? 'Station may be offline.' : '測站可能暫時離線。') }}</div>
               <div v-if="hasAlertLevels" class="alert-levels">
                 <span v-if="station.alert1 != null">{{ locale === 'en' ? 'Lv.1' : '一級' }} {{ formatLevel(station.alert1) }}m</span>
                 <span v-if="station.alert2 != null">{{ locale === 'en' ? 'Lv.2' : '二級' }} {{ formatLevel(station.alert2) }}m</span>
@@ -39,6 +48,17 @@
             </div>
             <WaterLevelChart v-if="series.points.length > 1" :series="chartSeries" :y-label="locale === 'en' ? 'Level (m)' : '水位 (m)'" />
           </template>
+
+          <!-- Station metadata: collapsed by default, out of the critical decision path -->
+          <details class="station-details">
+            <summary class="station-details-summary">{{ locale === 'en' ? 'Station info' : '測站資訊' }}</summary>
+            <div class="station-details-body">
+              <span class="detail-item">{{ locale === 'en' ? 'ID' : '站號' }} {{ station.id }}</span>
+              <span v-if="station.address" class="detail-item">
+                <span class="meta-label">{{ locale === 'en' ? 'Location' : '位置' }}</span>{{ station.address }}
+              </span>
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -72,7 +92,7 @@ async function load() {
   error.value = null
   series.value = null
   try {
-    const nextSeries = await fetchWaterLevel(stationId, days)
+    const nextSeries = await fetchWaterLevel(stationId)
     if (!isCurrentRequest()) return
     series.value = nextSeries
   } catch (e) {
@@ -188,11 +208,19 @@ const chartSeries = computed<ChartSeries[]>(() => {
 </script>
 
 <style scoped>
+/* ── Bottom-sheet slide-up (mobile only) ── */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 .overlay {
   position: fixed;
   inset: 0;
+  box-sizing: border-box;
   z-index: 1500;
-  background: rgba(0, 0, 0, 0.55);
+  /* Lighter than the old 0.55 — this is ambient data, not a destructive action */
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -203,13 +231,60 @@ const chartSeries = computed<ChartSeries[]>(() => {
   background: #12122a;
   border: 1px solid #2a2a4a;
   border-radius: 12px;
-  width: 880px;
+  width: 480px;
   max-width: 100%;
-  max-height: 100%;
+  max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   overflow: hidden;
+}
+
+/* Drag handle: hidden on desktop, shown on mobile */
+.drag-handle {
+  display: none;
+  width: 40px;
+  height: 4px;
+  background: #2a2a4a;
+  border-radius: 2px;
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+
+/* ── Mobile: bottom sheet ── */
+@media (max-width: 600px) {
+  .overlay {
+    align-items: flex-end;
+    justify-content: stretch;
+    padding: 0;
+    /* Slightly darker scrim — sheet bottom anchors, needs visible separation */
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 100%;
+    max-height: 85dvh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    /* Respect safe-area on devices with home indicator */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .drag-handle { display: block; }
+
+  /* Larger touch targets in the header */
+  .close-btn {
+    padding: 8px 10px;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 .panel-header {
@@ -274,52 +349,86 @@ const chartSeries = computed<ChartSeries[]>(() => {
 .panel-body {
   padding: 18px 24px 24px;
   overflow-y: auto;
+  min-height: 0;
 }
 
-.meta-row {
+/* ── Loading skeleton ── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.status-skeleton {
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  background: #171733;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 12px;
-  font-size: 0.875rem;
-  color: #888;
-  margin-bottom: 14px;
+}
+.skel-title, .skel-level, .skel-note {
+  border-radius: 4px;
+  background: linear-gradient(90deg, #2a2a4a 25%, #38386a 50%, #2a2a4a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+.skel-title  { height: 18px; width: 55%; }
+.skel-level  { height: 30px; width: 38%; }
+.skel-note   { height: 14px; width: 80%; }
+
+/* ── Status card — the H1 of the panel ── */
+.status-card {
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  background: #171733;
 }
 
-.state-msg {
-  font-size: 0.875rem;
-  color: #888;
-  padding: 24px 0;
-  text-align: center;
+/* Level number lives inside the verdict card */
+.status-level-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 8px 0 6px;
 }
-.state-msg.error { color: #e05c5c; }
-
-.latest-row {
-  font-size: 0.95rem;
-  color: #ccc;
-  margin-bottom: 12px;
-}
-.latest-row strong {
+.level-value {
+  font-size: 1.6rem;
+  font-weight: 700;
   color: #43AEDB;
-  font-size: 1.2rem;
+  letter-spacing: -0.02em;
 }
-.latest-time {
-  margin-left: 8px;
+.level-time {
   font-size: 0.75rem;
   color: #666;
 }
 
-.status-card {
+/* Error variant */
+.status-error-card { border-color: #4a2020; background: #1a1010; }
+.error-note { color: #e05c5c; }
+
+/* Retry button — styled, not browser-default */
+.retry-btn {
+  display: block;
+  margin: 0 auto 16px;
+  padding: 6px 22px;
+  background: none;
   border: 1px solid #2a2a4a;
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  background: #171733;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
 }
+.retry-btn:hover        { border-color: #6c8ef5; color: #6c8ef5; }
+.retry-btn:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
 
 .status-title {
   font-weight: 700;
+  font-size: 1rem;
   color: #fff;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .status-note {
@@ -331,7 +440,7 @@ const chartSeries = computed<ChartSeries[]>(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 0.75rem;
   color: #999;
 }
@@ -342,9 +451,51 @@ const chartSeries = computed<ChartSeries[]>(() => {
   background: #222244;
 }
 
-.status-normal { border-color: #2f8f5b; }
-.status-watch { border-color: #b59b2a; }
+.status-normal  { border-color: #2f8f5b; }
+.status-watch   { border-color: #b59b2a; }
 .status-warning { border-color: #c86a35; }
-.status-danger { border-color: #e05c5c; }
+.status-danger  { border-color: #e05c5c; }
 .status-unknown { border-color: #44445f; }
+
+/* ── Station metadata disclosure ── */
+.station-details {
+  margin-top: 8px;
+  border-top: 1px solid #222240;
+  padding-top: 12px;
+}
+.station-details-summary {
+  font-size: 0.75rem;
+  color: #555;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: color 0.12s;
+}
+.station-details-summary::-webkit-details-marker { display: none; }
+.station-details-summary::before {
+  content: '›';
+  display: inline-block;
+  font-size: 0.9rem;
+  transition: transform 0.15s;
+  line-height: 1;
+}
+details[open] .station-details-summary::before { transform: rotate(90deg); }
+.station-details-summary:hover { color: #888; }
+.station-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0 2px;
+}
+.detail-item {
+  font-size: 0.8rem;
+  color: #777;
+}
+.meta-label {
+  color: #555;
+  margin-right: 4px;
+}
 </style>
