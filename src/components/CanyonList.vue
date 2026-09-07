@@ -5,6 +5,7 @@
       <h2 class="title">{{ locale === 'en' ? 'Taiwan Canyoning' : '台灣溪降地圖' }}</h2>
       <button class="close-sidebar-btn" @click="$emit('close')" :title="locale === 'en' ? 'Collapse' : '收合'">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+        <span class="close-sidebar-text">{{ locale === 'en' ? 'Close' : '收合' }}</span>
       </button>
     </div>
 
@@ -219,6 +220,7 @@ function starsPart(grading: string): string {
 .close-sidebar-btn {
   display: flex;
   align-items: center;
+  gap: 4px;
   background: none;
   border: none;
   color: #888;
@@ -478,6 +480,18 @@ function starsPart(grading: string): string {
 }
 
 @media (max-width: 640px) {
+  .close-sidebar-btn {
+    border: 1px solid #3a3a5a;
+    color: #d6defd;
+    background: #12122a;
+  }
+
+  .close-sidebar-text {
+    display: inline;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
   .mobile-close-btn {
     display: flex;
     align-items: center;
@@ -495,5 +509,11 @@ function starsPart(grading: string): string {
     flex-shrink: 0;
   }
   .mobile-close-btn:hover { color: #ccc; }
+}
+
+@media (min-width: 641px) {
+  .close-sidebar-text {
+    display: none;
+  }
 }
 </style>

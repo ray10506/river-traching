@@ -690,7 +690,7 @@ const activeFilters = computed(() => {
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1000; /* above Leaflet popup pane (700) */
+  z-index: 1200; /* above Leaflet and bottom toolbar while open */
   height: 100%;
   width: 280px;
   min-width: 280px;

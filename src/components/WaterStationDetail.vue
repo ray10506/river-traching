@@ -9,9 +9,14 @@
             <span class="station-name">{{ station.name }}</span>
             <span class="river-badge">{{ station.river || '—' }}</span>
             <span v-if="distance != null" class="dist-badge">{{ locale === 'en' ? 'From route' : '距路線' }} {{ distance.toFixed(1) }} km</span>
-            <span class="period-badge">{{ locale === 'en' ? 'Live' : '即時' }}</span>
           </div>
           <button class="close-btn" @click="$emit('close')">✕</button>
+        </div>
+
+        <div class="period-row">
+          <button :class="['period-btn', { active: mode === 'live' }]" @click="selectMode('live')">{{ locale === 'en' ? 'Live' : '即時' }}</button>
+          <button :class="['period-btn', { active: mode === '7' }]" @click="selectMode('7')">{{ locale === 'en' ? '7 days' : '近 7 天' }}</button>
+          <button :class="['period-btn', { active: mode === '14' }]" @click="selectMode('14')">{{ locale === 'en' ? '14 days' : '近 14 天' }}</button>
         </div>
 
         <div class="panel-body">
@@ -68,7 +73,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue'
 import WaterLevelChart from './WaterLevelChart.vue'
-import { fetchWaterLevel, type WaterLevelSeries, type WaterStation } from '../lib/waterLevel'
+import { fetchWaterLevel, fetchWaterLevelHistory, type WaterLevelDays, type WaterLevelSeries, type WaterStation } from '../lib/waterLevel'
 import type { ChartSeries } from '../lib/chart'
 import { locale } from '../lib/locale'
 
@@ -80,6 +85,8 @@ defineEmits<{ close: [] }>()
 const loading = ref(false)
 const error = ref<string | null>(null)
 const series = ref<WaterLevelSeries | null>(null)
+const mode = ref<'live' | '7' | '14'>('live')
+const historyCache = ref<Record<'7' | '14', WaterLevelSeries | null>>({ '7': null, '14': null })
 let loadRequestId = 0
 
 async function load() {
@@ -92,15 +99,30 @@ async function load() {
   error.value = null
   series.value = null
   try {
-    const nextSeries = await fetchWaterLevel(stationId)
+    const nextSeries = mode.value === 'live'
+      ? await fetchWaterLevel(stationId)
+      : await fetchWaterLevelHistory(stationId, Number(mode.value) as WaterLevelDays)
     if (!isCurrentRequest()) return
     series.value = nextSeries
+    if (mode.value !== 'live') historyCache.value[mode.value] = nextSeries
   } catch (e) {
     if (!isCurrentRequest()) return
     error.value = e instanceof Error ? e.message : (locale.value === 'en' ? 'Unable to load water level data' : '水位資料暫時無法載入')
   } finally {
     if (isCurrentRequest()) loading.value = false
   }
+}
+
+function selectMode(next: 'live' | '7' | '14') {
+  mode.value = next
+  error.value = null
+  if (next === 'live') return load()
+  const cached = historyCache.value[next]
+  if (cached) {
+    series.value = cached
+    return
+  }
+  load()
 }
 
 onMounted(load)
@@ -323,6 +345,28 @@ const chartSeries = computed<ChartSeries[]>(() => {
   font-weight: 600;
   background: #2a2a4a;
   color: #aaa;
+}
+
+.period-row {
+  display: flex;
+  gap: 4px;
+  padding: 10px 24px 0;
+}
+
+.period-btn {
+  flex: 1;
+  min-height: 36px;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  background: #171733;
+  color: #aaa;
+  cursor: pointer;
+}
+
+.period-btn.active {
+  border-color: #6c8ef5;
+  background: #1e2d6b;
+  color: #fff;
 }
 
 .dist-badge {
