@@ -9,6 +9,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { Chart, registerables, Tooltip } from 'chart.js'
 import type { ChartType, TooltipPositionerFunction } from 'chart.js'
 import type { ChartSeries } from '../lib/chart'
+import { taipeiParts } from '../lib/waterLevel'
 
 Chart.register(...registerables)
 
@@ -37,15 +38,15 @@ let chart: Chart | null = null
 
 // Bar mode plots one point per day — no hour to show.
 function formatLabel(iso: string) {
-  const d = new Date(iso)
-  const date = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
-  return props.type === 'bar' ? date : `${date} ${String(d.getHours()).padStart(2, '0')}:00`
+  const parts = taipeiParts(iso)
+  const date = `${parts.month}/${parts.day}`
+  return props.type === 'bar' ? date : `${date} ${parts.hour}:${parts.minute}`
 }
 
 function formatTooltipTitle(iso: string) {
-  const d = new Date(iso)
-  const date = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
-  return props.type === 'bar' ? date : `${date} ${String(d.getHours()).padStart(2, '0')}:00`
+  const parts = taipeiParts(iso)
+  const date = `${parts.year}/${parts.month}/${parts.day}`
+  return props.type === 'bar' ? date : `${date} ${parts.hour}:${parts.minute}`
 }
 
 function computeYRange(series: ChartSeries[]) {

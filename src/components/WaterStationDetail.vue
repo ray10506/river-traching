@@ -1,7 +1,8 @@
 <template>
   <Teleport to="body">
-    <div class="overlay" @click="$emit('close')">
-      <div class="panel" @click.stop>
+    <div class="card-overlay" @click="$emit('close')"></div>
+    <div class="popup" :style="popupStyle" @click.stop>
+        <div class="arrow" :class="arrowSide" :style="arrowStyle"></div>
         <!-- Drag-handle affordance on mobile bottom sheet -->
         <div class="drag-handle" aria-hidden="true"></div>
         <div class="panel-header">
@@ -65,7 +66,6 @@
             </div>
           </details>
         </div>
-      </div>
     </div>
   </Teleport>
 </template>
@@ -73,11 +73,12 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue'
 import WaterLevelChart from './WaterLevelChart.vue'
-import { fetchWaterLevel, fetchWaterLevelHistory, type WaterLevelDays, type WaterLevelSeries, type WaterStation } from '../lib/waterLevel'
+import { fetchWaterLevel, fetchWaterLevelHistory, taipeiParts, type WaterLevelDays, type WaterLevelSeries, type WaterStation } from '../lib/waterLevel'
 import type { ChartSeries } from '../lib/chart'
 import { locale } from '../lib/locale'
+import { clamp } from '../lib/clamp'
 
-const props = withDefaults(defineProps<{ station: WaterStation; days?: number; distance?: number }>(), {
+const props = withDefaults(defineProps<{ station: WaterStation; pos: { x: number; y: number }; days?: number; distance?: number }>(), {
   days: 7,
 })
 defineEmits<{ close: [] }>()
@@ -88,6 +89,30 @@ const series = ref<WaterLevelSeries | null>(null)
 const mode = ref<'live' | '7' | '14'>('live')
 const historyCache = ref<Record<'7' | '14', WaterLevelSeries | null>>({ '7': null, '14': null })
 let loadRequestId = 0
+
+const MARGIN = 16
+const CARD_OFFSET = 28
+const ARROW_HALF_H = 8
+const ARROW_SAFE_PAD = 24
+const popupWidth = computed(() => Math.min(480, window.innerWidth - MARGIN * 2))
+const estimatedHeight = computed(() => loading.value || error.value ? 220 : 600)
+const arrowSide = computed(() => props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth ? 'arrow-left' : 'arrow-right')
+const popupLayout = computed(() => {
+  const width = popupWidth.value
+  const height = Math.min(estimatedHeight.value, Math.max(120, window.innerHeight - MARGIN * 2))
+  const onRight = props.pos.x + CARD_OFFSET + width + MARGIN <= window.innerWidth
+  let left = onRight ? props.pos.x + CARD_OFFSET : props.pos.x - CARD_OFFSET - width
+  let top = props.pos.y - 13 - 44
+  left = clamp(left, MARGIN, window.innerWidth - width - MARGIN)
+  top = clamp(top, MARGIN, window.innerHeight - height - MARGIN)
+  const arrowTop = clamp(props.pos.y - 13 - top - ARROW_HALF_H, ARROW_SAFE_PAD, height - ARROW_SAFE_PAD)
+  return { left, top, width, height, arrowTop }
+})
+const popupStyle = computed(() => {
+  const { left, top, width, height } = popupLayout.value
+  return { left: `${left}px`, top: `${top}px`, width: `${width}px`, maxHeight: `${height}px`, minHeight: loading.value || error.value ? `${height}px` : undefined }
+})
+const arrowStyle = computed(() => ({ top: `${popupLayout.value.arrowTop}px` }))
 
 async function load() {
   const stationId = props.station.id
@@ -143,8 +168,8 @@ const latestTime = computed(() => {
   if (!points) return ''
   for (let i = points.length - 1; i >= 0; i--) {
     if (points[i].value != null) {
-      const d = new Date(points[i].time)
-      return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:00`
+      const parts = taipeiParts(points[i].time)
+      return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`
     }
   }
   return ''
@@ -236,30 +261,46 @@ const chartSeries = computed<ChartSeries[]>(() => {
   to   { transform: translateY(0); }
 }
 
-.overlay {
+.card-overlay {
   position: fixed;
   inset: 0;
-  box-sizing: border-box;
-  z-index: 1500;
-  /* Lighter than the old 0.55 — this is ambient data, not a destructive action */
+  z-index: 1999;
   background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
 }
 
-.panel {
+.popup {
+  position: fixed;
+  z-index: 2000;
   background: #12122a;
   border: 1px solid #2a2a4a;
   border-radius: 12px;
   width: 480px;
   max-width: 100%;
-  max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  overflow: hidden;
+  overflow: visible;
+}
+
+.arrow {
+  position: absolute;
+  top: 36px;
+  width: 0;
+  height: 0;
+}
+.arrow-left {
+  left: -8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 8px solid #12122a;
+  filter: drop-shadow(-2px 0 3px rgba(0,0,0,0.4));
+}
+.arrow-right {
+  right: -8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 8px solid #12122a;
+  filter: drop-shadow(2px 0 3px rgba(0,0,0,0.4));
 }
 
 /* Drag handle: hidden on desktop, shown on mobile */
@@ -275,17 +316,16 @@ const chartSeries = computed<ChartSeries[]>(() => {
 
 /* ── Mobile: bottom sheet ── */
 @media (max-width: 600px) {
-  .overlay {
-    align-items: flex-end;
-    justify-content: stretch;
-    padding: 0;
-    /* Slightly darker scrim — sheet bottom anchors, needs visible separation */
+  .card-overlay {
     background: rgba(0, 0, 0, 0.5);
   }
 
-  .panel {
+  .popup {
     width: 100%;
     max-width: 100%;
+    left: 0 !important;
+    top: auto !important;
+    bottom: 0;
     max-height: 85dvh;
     border-radius: 16px 16px 0 0;
     border-bottom: none;
@@ -295,6 +335,8 @@ const chartSeries = computed<ChartSeries[]>(() => {
     padding-bottom: env(safe-area-inset-bottom, 0px);
     animation: sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   }
+
+  .arrow { display: none; }
 
   .drag-handle { display: block; }
 

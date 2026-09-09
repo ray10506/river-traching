@@ -54,15 +54,19 @@
           </svg>
         </button>
         <Map
+          ref="mapRef"
           :selected-id="selectedId"
-          :focus-point="routeFocusPoint"
+          :focus-point="mapFocusPoint"
           :route-track="routeTrack"
           :canyon-route-markers="canyonRouteMarkers"
           :selected-route-id="selectedRouteId"
           :nearby-anchor="nearbyAnchor"
+          :station-search="stationSearch"
+          :search-points="searchPoints"
+          :search-panel-open="activePanel === 'search'"
           @select-route="onSelectRoute"
           @select-water-station="
-            (s, d) => (waterStationDetail = { station: s, days: 7, distance: d })
+            (s, p, d) => (waterStationDetail = { station: s, pos: p, days: 7, distance: d })
           "
           @select-rainfall-station="
             (s, p, d) => (rainfallStationDetail = { station: s, pos: p, distance: d })
@@ -78,6 +82,7 @@
       <WaterStationDetail
         v-if="waterStationDetail"
         :station="waterStationDetail.station"
+        :pos="waterStationDetail.pos"
         :days="waterStationDetail.days"
         :distance="waterStationDetail.distance"
         @close="waterStationDetail = null"
@@ -90,9 +95,6 @@
         @close="rainfallStationDetail = null"
       />
 
-      <!-- Dismiss backdrop for search card -->
-      <div v-if="activePanel === 'search'" class="panel-dismiss" @click="activePanel = null" />
-
       <!-- Search card (top-right floating) -->
       <SearchCard
         v-if="activePanel === 'search'"
@@ -102,10 +104,19 @@
         v-model:t="routeFilter.t"
         v-model:drop="routeFilter.drop"
         v-model:gpx="filterGpx"
+        v-model:search-type="searchType"
         :selected-region="selectedRegion"
+        :routes="searchQuery.trim() || searchType === 'route' ? filteredRoutes : []"
+        :water-stations="stationSearch?.water ?? []"
+        :rainfall-stations="stationSearch?.rainfall ?? []"
         @close="activePanel = null"
+        @confirm="confirmSearch"
         @filter-region="toggleRegion($event)"
+        @clear-region="selectedRegion = []"
         @clear-all="clearAllFilters"
+        @select-water-station="selectWaterStationFromSearch"
+        @select-rainfall-station="selectRainfallStationFromSearch"
+        @select-route="onSelectRoute($event); activePanel = null"
       />
 
       <!-- Settings panel -->
@@ -120,14 +131,20 @@
           v-if="activeFilters.length && activePanel !== 'search'"
           class="filter-chips"
         >
-          <button
+          <div
             v-for="f in activeFilters"
             :key="f.label"
             class="filter-chip"
-            @click="f.clear()"
           >
-            {{ f.label }} ✕
-          </button>
+            <button class="filter-chip-label" @click="activePanel = 'search'">
+              {{ f.label }}
+            </button>
+            <button
+              class="filter-chip-remove"
+              :aria-label="`${locale === 'en' ? 'Clear' : '清除'} ${f.label}`"
+              @click="f.clear()"
+            >✕</button>
+          </div>
           <button
             v-if="activeFilters.length > 1"
             class="filter-chip filter-chip--clear"
@@ -198,7 +215,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { locale, localeRegion } from "./lib/locale";
 import Map from "./components/Map.vue";
 import CanyonList from "./components/CanyonList.vue";
@@ -211,13 +228,21 @@ import { pb } from "./lib/pb";
 import { clamp } from "./lib/clamp";
 import { fetchElevation } from "./lib/elevation";
 import type { WaterStation } from "./lib/waterLevel";
-import type { RainfallStation } from "./lib/rainfall";
+import { rainfallStations, type RainfallStation } from "./lib/rainfall";
+import waterStations from "./data/water-stations.json";
 
 const sidebarOpen = ref(window.innerWidth > 640);
 const activePanel = ref<"search" | "settings" | null>(null);
+const mapRef = ref<InstanceType<typeof Map> | null>(null);
+
+async function confirmSearch() {
+  activePanel.value = null;
+  await nextTick();
+  mapRef.value?.focusSearchResults();
+}
 const detailItem = ref<{ kind: "canyon" | "route"; data: any } | null>(null);
 const sidebarWidth = ref(280);
-const waterStationDetail = ref<{ station: WaterStation; days: number; distance?: number } | null>(
+const waterStationDetail = ref<{ station: WaterStation; pos: { x: number; y: number }; days: number; distance?: number } | null>(
   null,
 );
 const rainfallStationDetail = ref<{
@@ -225,6 +250,7 @@ const rainfallStationDetail = ref<{
   pos: { x: number; y: number };
   distance?: number;
 } | null>(null);
+const searchStationPoint = ref<[number, number] | null>(null);
 
 function isValidLatLng(lat: number, lng: number): boolean {
   return (
@@ -246,6 +272,8 @@ const routeFocusPoint = computed((): [number, number] | null => {
     return [parts[0], parts[1]];
   return null;
 });
+
+const mapFocusPoint = computed(() => searchStationPoint.value ?? routeFocusPoint.value);
 
 const cardInitPos = computed((): { x: number; y: number } | null => {
   if (detailItem.value?.kind !== "route") return null;
@@ -295,6 +323,7 @@ const routesLoaded = ref(false);
 const routesLoading = ref(false);
 const routeFilter = ref({ v: "", a: "", t: "", drop: "" });
 const filterGpx = ref(false);
+const searchType = ref<"all" | "route" | "water" | "rainfall">("all");
 
 const selectedId = ref<string | null>(null);
 const searchQuery = ref("");
@@ -365,8 +394,26 @@ const canyonRouteMarkers = computed(() => {
 });
 
 function onSelectRoute(id: string) {
+  searchStationPoint.value = null;
   const route = canyonRoutes.value.find((r) => r.id === id);
   if (route) detailItem.value = { kind: "route", data: route };
+}
+
+function selectWaterStationFromSearch(station: WaterStation) {
+  activePanel.value = null;
+  detailItem.value = null;
+  searchStationPoint.value = [station.lat, station.lon];
+  waterStationDetail.value = { station, pos: { x: window.innerWidth / 2, y: window.innerHeight / 2 }, days: 7 };
+}
+
+function selectRainfallStationFromSearch(station: RainfallStation) {
+  activePanel.value = null;
+  detailItem.value = null;
+  searchStationPoint.value = [station.lat, station.lon];
+  rainfallStationDetail.value = {
+    station,
+    pos: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+  };
 }
 
 const REGION_KEYWORDS: Record<string, string[]> = {
@@ -413,6 +460,30 @@ const REGION_KEYWORDS: Record<string, string[]> = {
   ],
   東部: ["花蓮", "台東", "臺東", "Hualien", "Taitung"],
 };
+
+// 臺/台-insensitive lowercase compare, used by both the station and route search below.
+function normalize(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/臺/g, '台');
+}
+
+const stationSearch = computed(() => {
+  const q = normalize(searchQuery.value.trim());
+  if (searchType.value === 'route' || (searchType.value === 'all' && !q)) return null;
+  const matches = (fields: string[], region: string) =>
+    matchRegion(region, selectedRegion.value) && fields.some(value => normalize(value).includes(q));
+  return {
+    water: searchType.value === 'rainfall' ? [] : waterStations.filter(s =>
+      matches([s.id, s.name, s.river, s.address], s.address)),
+    rainfall: searchType.value === 'water' ? [] : rainfallStations.filter(s =>
+      matches([s.station_id, s.name, s.county, s.town], s.county)),
+  };
+});
+
+const searchPoints = computed(() => {
+  if (searchType.value === 'all' && !activeFilters.value.length) return null;
+  return [...canyonRouteMarkers.value, ...(stationSearch.value?.water ?? []), ...(stationSearch.value?.rainfall ?? [])]
+    .map(s => [s.lat, s.lon] as [number, number]);
+});
 
 function toggleRegion(region: string) {
   const i = selectedRegion.value.indexOf(region);
@@ -523,21 +594,20 @@ async function fetchRoutes(showOverlay: boolean) {
   try {
     const isEn = locale.value === "en";
     const nameF = isEn ? "name_en" : "name";
-    const regionF = isEn ? "region_en" : "region";
-    const fields = `id,${nameF},${regionF},grading,max_drop,approach,total_time,gps,gpx_track,gpx_waypoints,elevation,deep_pool,ab_shuttle,note`;
+    const fields = 'id,name,name_en,region,region_en,grading,max_drop,approach,total_time,gps,gpx_track,gpx_waypoints,elevation,deep_pool,ab_shuttle,note';
     const records = await pb.collection("canyon_routes").getFullList({
       sort: nameF,
       filter: "type = '溪降'",
       fields,
     });
     // Normalise: always expose .name / .region regardless of source field
-    canyonRoutes.value = isEn
-      ? records.map((r) => ({
+    canyonRoutes.value = records.map((r) => ({
           ...r,
-          name: (r as any).name_en ?? "",
-          region: (r as any).region_en ?? "",
-        }))
-      : records;
+          name_zh: (r as any).name ?? "",
+          region_zh: (r as any).region ?? "",
+          name: (isEn && r.name_en) || r.name || "",
+          region: (isEn && r.region_en) || r.region || "",
+        }));
     routesLoaded.value = true;
   } catch {
     if (showOverlay) loadError.value = true;
@@ -583,17 +653,17 @@ function parseMeters(val: string): number {
 }
 
 const filteredRoutes = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase();
+  if (searchType.value === "water" || searchType.value === "rainfall") return [];
+  const q = normalize(searchQuery.value.trim());
   const { v, a, t, drop } = routeFilter.value;
   return canyonRoutes.value
     .filter((r) => {
       const hasGps = r["gps"]?.trim();
       if (!hasGps) return false;
-      if (!matchRegion(r["region"] ?? "", selectedRegion.value)) return false;
+      if (!matchRegion(r["region_zh"] || r["region"] || "", selectedRegion.value)) return false;
       const matchSearch =
         !q ||
-        r["name"]?.toLowerCase().includes(q) ||
-        r["region"]?.toLowerCase().includes(q);
+        [r.name, r.name_zh, r.name_en, r.region, r.region_zh, r.region_en].some(value => normalize(value).includes(q));
       const grading = (r["grading"] ?? "").split(/\s+/);
       const matchV = !v || grading.some((p: string) => p === v);
       const matchA = !a || grading.some((p: string) => p === a);
@@ -641,6 +711,7 @@ function clearAllFilters() {
   searchQuery.value = "";
   routeFilter.value = { v: "", a: "", t: "", drop: "" };
   filterGpx.value = false;
+  searchType.value = "all";
   selectedRegion.value = [];
   selectedId.value = null;
 }
@@ -656,6 +727,15 @@ const FILTER_KEYS: [FilterKey, string][] = [
 
 const activeFilters = computed(() => {
   const items: { label: string; clear: () => void }[] = [];
+  if (searchType.value !== "all") {
+    const labels = locale.value === "en"
+      ? { route: "Routes", water: "Water stations", rainfall: "Rainfall stations" }
+      : { route: "路線", water: "水位站", rainfall: "雨量站" };
+    items.push({
+      label: labels[searchType.value],
+      clear: () => (searchType.value = "all"),
+    });
+  }
   if (searchQuery.value.trim())
     items.push({
       label: `"${searchQuery.value.trim()}"`,
@@ -822,6 +902,23 @@ const activeFilters = computed(() => {
   color: #fff;
 }
 
+.filter-chip-label,
+.filter-chip-remove {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.filter-chip-label { padding: 0; }
+.filter-chip-remove { padding: 0 0 0 2px; }
+.filter-chip-label:focus-visible,
+.filter-chip-remove:focus-visible {
+  outline: 2px solid #b5c6ff;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .filter-chip--clear {
   border-color: #e05c5c;
   color: #e05c5c;
@@ -860,12 +957,6 @@ const activeFilters = computed(() => {
   padding: 8px 20px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
   z-index: 1050;
-}
-
-.panel-dismiss {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
 }
 
 .bar-btn {

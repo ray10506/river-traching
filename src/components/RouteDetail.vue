@@ -59,6 +59,12 @@
             }}</span>
             <span class="row-value">{{ d.region }}</span>
           </div>
+          <div v-if="weatherForecastUrl" class="row">
+            <span class="row-label">{{ locale === "en" ? "Weather" : "天氣" }}</span>
+            <a class="row-value forecast-link" :href="weatherForecastUrl" target="_blank" rel="noopener">
+              {{ weatherForecastUrl?.includes('TID=') ? (locale === "en" ? "72-hour forecast" : "72 小時預報") : (locale === "en" ? "County forecast" : "縣市預報") }} ↗
+            </a>
+          </div>
           <div v-if="d.grading" class="row">
             <span class="row-label">{{
               locale === "en" ? "Grade" : "分級"
@@ -324,6 +330,54 @@ function parseNote(val: string) {
 function mapsUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
+
+import cwaTowns from '../data/cwa-towns.json';
+
+const WEATHER_COUNTY_IDS: Record<string, string> = {
+  "臺北市": "63", "台北市": "63", 台北: "63", Taipei: "63",
+  "新北市": "65", 新北: "65", "New Taipei": "65",
+  "桃園市": "68", 桃園: "68", Taoyuan: "68",
+  "臺中市": "66", "台中市": "66", 台中: "66", Taichung: "66",
+  "臺南市": "67", "台南市": "67", 台南: "67", Tainan: "67",
+  "高雄市": "64", 高雄: "64", Kaohsiung: "64",
+  "基隆市": "10017", 基隆: "10017", Keelung: "10017",
+  "新竹市": "10018", "Hsinchu City": "10018",
+  "新竹縣": "10004", "Hsinchu County": "10004", 新竹: "10004", Hsinchu: "10004",
+  "苗栗縣": "10005", 苗栗: "10005", Miaoli: "10005",
+  "彰化縣": "10007", 彰化: "10007", Changhua: "10007",
+  "南投縣": "10008", 南投: "10008", Nantou: "10008",
+  "雲林縣": "10009", 雲林: "10009", Yunlin: "10009",
+  "嘉義縣": "10010", "Chiayi County": "10010", 嘉義: "10010", Chiayi: "10010",
+  "嘉義市": "10020", "Chiayi City": "10020",
+  "屏東縣": "10013", 屏東: "10013", Pingtung: "10013",
+  "宜蘭縣": "10002", 宜蘭: "10002", Yilan: "10002",
+  "花蓮縣": "10015", 花蓮: "10015", Hualien: "10015",
+  "臺東縣": "10014", "台東縣": "10014", 台東: "10014", Taitung: "10014",
+  "澎湖縣": "10016", 澎湖: "10016", Penghu: "10016",
+  "金門縣": "09020", Kinmen: "09020",
+  "連江縣": "09007", Lienchiang: "09007",
+};
+
+const weatherForecastUrl = computed(() => {
+  const region = String(d.value.region_zh || d.value.region || "");
+  const normalize = (value: string) => value.toLowerCase().replace(/臺/g, '台').replace(/['’]/g, '');
+  const county = Object.entries(WEATHER_COUNTY_IDS).sort(([a], [b]) => b.length - a.length)
+    .find(([name]) => normalize(region).startsWith(normalize(name)));
+  const countyId = county?.[1];
+  const district = normalize(county ? region.slice(county[0].length) : region).replace(/^[市縣\s·・,，-]+/, '');
+  const towns = countyId ? (cwaTowns as Record<string, { id: string; zh: string; en: string }[]>)[countyId] ?? [] : Object.values(cwaTowns).flat();
+  const matches = towns.filter(t => {
+    const zh = normalize(t.zh);
+    const en = normalize(t.en).replace(/ (district|township|city)$/, '');
+    return district.startsWith(zh) || district === zh.replace(/[區鄉鎮市]$/, '') ||
+      district === en || district.startsWith(`${en} `) || district.startsWith(`${en}(`);
+  });
+  const town = matches.length === 1 ? matches[0] : null;
+  if (town) return `https://www.cwa.gov.tw/V8/${locale.value === 'en' ? 'E' : 'C'}/W/Town/Town.html?TID=${town.id}`;
+  return countyId
+    ? `https://www.cwa.gov.tw/V8/C/W/County/County.html?CID=${countyId}`
+    : null;
+});
 
 function parseGradePart(grading: string, pattern: RegExp) {
   return grading?.split(/\s+/).find((p: string) => pattern.test(p)) ?? "—";
@@ -727,6 +781,19 @@ ${trksegs}
 }
 .note-link:hover {
   text-decoration: underline;
+}
+
+.forecast-link {
+  width: fit-content;
+  padding: 5px 10px;
+  border: 1px solid #3a3a5a;
+  border-radius: 6px;
+  color: #6c8ef5;
+  text-decoration: none;
+}
+.forecast-link:hover {
+  border-color: #6c8ef5;
+  background: #1e2d6b;
 }
 
 .grade-stars {

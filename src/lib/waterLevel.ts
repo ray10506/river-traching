@@ -26,6 +26,18 @@ export type WaterLevelDays = 7 | 14
 
 const WRA_REALTIME_URL = 'https://opendata.wra.gov.tw/api/v2/73c4c3de-4045-4765-abeb-89f9f9cd5ff0?format=JSON'
 
+export function parseWraDateTime(value: string): Date {
+  return new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}+08:00`)
+}
+
+/** Break an ISO timestamp into Asia/Taipei y/m/d/h/min parts for display formatting. */
+export function taipeiParts(iso: string): Record<string, string> {
+  return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date(iso)).filter(p => p.type !== 'literal').map(p => [p.type, p.value]))
+}
+
 export async function fetchWaterLevel(stationId: string): Promise<WaterLevelSeries> {
   const res = await fetch(WRA_REALTIME_URL)
   if (!res.ok) throw new Error(`水利署 API 錯誤 (${res.status})`)
@@ -38,7 +50,7 @@ export async function fetchWaterLevel(stationId: string): Promise<WaterLevelSeri
 
   return {
     title: '即時水位 (m)',
-    points: [{ time: new Date(record.datetime).toISOString(), value }],
+    points: [{ time: parseWraDateTime(record.datetime).toISOString(), value }],
   }
 }
 

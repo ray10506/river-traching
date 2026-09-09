@@ -17,6 +17,11 @@ export function localeRegion(text: string): string {
   return CITY_EN[text] ?? REGION_LABEL_EN[text] ?? text
 }
 
+/** Pick zh/en text for the current locale, in place of a `locale === 'en' ? en : zh` ternary. */
+export function t(zh: string, en: string): string {
+  return locale.value === 'en' ? en : zh
+}
+
 const REGION_LABEL_EN: Record<string, string> = {
   '北部': 'North', '中部': 'Central', '南部': 'South', '東部': 'East',
 }

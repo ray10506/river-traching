@@ -33,9 +33,7 @@
       </div>
       <div class="layers-list">
         <div class="layer-row">
-          <svg class="layer-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2.5C12 2.5 5.5 10.5 5.5 15.5a6.5 6.5 0 0 0 13 0C18.5 10.5 12 2.5 12 2.5z" />
-          </svg>
+          <img class="layer-icon" src="/water-level.svg" alt="" />
           <span class="layer-label">{{
             locale === "en" ? "River Level" : "水位站"
           }}</span>
@@ -205,13 +203,16 @@ const props = withDefaults(
     canyonRouteMarkers: RouteMarker[];
     selectedRouteId: string | null;
     nearbyAnchor: NearbyAnchor | null;
+    stationSearch: { water: WaterStation[]; rainfall: RainfallStation[] } | null;
+    searchPoints: [number, number][] | null;
+    searchPanelOpen: boolean;
   }>(),
   { canyons: () => [], nearbyAnchor: null },
 );
 
 const emit = defineEmits<{
   selectRoute: [id: string];
-  selectWaterStation: [station: WaterStation, distance: number | undefined];
+  selectWaterStation: [station: WaterStation, pos: { x: number; y: number }, distance: number | undefined];
   selectRainfallStation: [
     station: RainfallStation,
     pos: { x: number; y: number },
@@ -265,6 +266,8 @@ let currentTile: L.TileLayer | null = null;
 const selectedTile = ref("topo");
 const showWaterStations = ref(false);
 const showRainfallStations = ref(false);
+const waterVisible = computed(() => props.stationSearch !== null ? props.stationSearch.water.length > 0 : showWaterStations.value);
+const rainfallVisible = computed(() => props.stationSearch !== null ? props.stationSearch.rainfall.length > 0 : showRainfallStations.value);
 const showLayersPanel = ref(false);
 const showLocationMarkers = ref(true);
 
@@ -364,9 +367,9 @@ function goNext() {
 
 const waterStationIcon = L.divIcon({
   className: "",
-  html: '<div style="width:28px;height:28px;background:rgba(255,255,255,0.92);border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1">💧</div>',
-  iconSize: [28, 26],
-  iconAnchor: [14, 26],
+  html: '<div class="water-station-marker"><img src="/water-level.svg" alt=""></div>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
 });
 
 const rainfallStationIcon = L.divIcon({
@@ -397,7 +400,7 @@ function filterByAnchor<T extends { lat: number; lon: number }>(
 function renderWaterStations() {
   if (!map) return;
   waterStationLayer?.remove();
-  waterStationLayer = props.nearbyAnchor
+  waterStationLayer = props.nearbyAnchor && !props.stationSearch
     ? L.layerGroup()
     : L.markerClusterGroup({
         maxClusterRadius: 80,
@@ -411,19 +414,23 @@ function renderWaterStations() {
           });
         },
       });
-  filterByAnchor(waterStations as WaterStation[], props.nearbyAnchor).forEach(({ item: s, dist }) => {
+  filterByAnchor(props.stationSearch?.water ?? waterStations as WaterStation[], props.stationSearch ? null : props.nearbyAnchor).forEach(({ item: s, dist }) => {
     const label = dist != null ? `${s.name}（${s.river}） · ${dist.toFixed(1)} km` : `${s.name}（${s.river}）`;
     L.marker([s.lat, s.lon], { icon: waterStationIcon })
       .bindTooltip(
         Object.assign(document.createElement("span"), { textContent: label }),
         { direction: "top", offset: [0, -6] },
       )
-      .on("click", () => emit("selectWaterStation", s, dist))
+      .on("click", (e: L.LeafletMouseEvent) => {
+        const rect = document.getElementById("map")!.getBoundingClientRect();
+        const pt = map!.latLngToContainerPoint(e.latlng);
+        emit("selectWaterStation", s, { x: rect.left + pt.x, y: rect.top + pt.y }, dist);
+      })
       .addTo(waterStationLayer!);
   });
 }
 
-watch(showWaterStations, (show) => {
+watch(waterVisible, (show) => {
   if (!map) return;
   if (show) {
     if (!waterStationLayer) renderWaterStations(); // lazy build; anchor re-renders are driven by nearbyAnchor watcher
@@ -436,7 +443,7 @@ watch(showWaterStations, (show) => {
 function renderRainfallStations() {
   if (!map) return;
   rainfallStationLayer?.remove();
-  rainfallStationLayer = props.nearbyAnchor
+  rainfallStationLayer = props.nearbyAnchor && !props.stationSearch
     ? L.layerGroup()
     : L.markerClusterGroup({
         maxClusterRadius: 80,
@@ -450,7 +457,7 @@ function renderRainfallStations() {
           });
         },
       });
-  filterByAnchor(rainfallStations, props.nearbyAnchor).forEach(({ item: s, dist }) => {
+  filterByAnchor(props.stationSearch?.rainfall ?? rainfallStations, props.stationSearch ? null : props.nearbyAnchor).forEach(({ item: s, dist }) => {
     const label = dist != null ? `${s.name}（${s.county}${s.town}） · ${dist.toFixed(1)} km` : `${s.name}（${s.county}${s.town}）`;
     L.marker([s.lat, s.lon], { icon: rainfallStationIcon })
       .bindTooltip(label, { direction: "top", offset: [0, -6] })
@@ -463,7 +470,7 @@ function renderRainfallStations() {
   });
 }
 
-watch(showRainfallStations, (show) => {
+watch(rainfallVisible, (show) => {
   if (!map) return;
   if (show) {
     if (!rainfallStationLayer) renderRainfallStations();
@@ -495,14 +502,14 @@ function syncNearbyAnchor(anchor: NearbyAnchor | null) {
   }
   // Rebuild both layers to apply/remove the distance filter.
   // renderWaterStations/renderRainfallStations each call .remove() internally before rebuilding.
-  if (showWaterStations.value) {
+  if (waterVisible.value) {
     renderWaterStations();
     waterStationLayer?.addTo(map);
   } else {
     waterStationLayer?.remove();
     waterStationLayer = null;
   }
-  if (showRainfallStations.value) {
+  if (rainfallVisible.value) {
     renderRainfallStations();
     rainfallStationLayer?.addTo(map);
   } else {
@@ -511,6 +518,20 @@ function syncNearbyAnchor(anchor: NearbyAnchor | null) {
   }
 }
 watch(() => props.nearbyAnchor, syncNearbyAnchor);
+watch(() => props.stationSearch, () => {
+  syncNearbyAnchor(props.nearbyAnchor);
+});
+
+function focusSearchResults() {
+  if (!map || !props.searchPoints?.length) return;
+  const rightPadding = props.searchPanelOpen && map.getSize().x > 640 ? 328 : 48;
+  map.stop();
+  map.fitBounds(L.latLngBounds(props.searchPoints), {
+    paddingTopLeft: [48, 48], paddingBottomRight: [rightPadding, 110], maxZoom: 14, animate: false,
+  });
+}
+watch(() => props.searchPoints, focusSearchResults, { flush: 'post' });
+defineExpose({ focusSearchResults });
 
 function onTileChange(e: Event) {
   if (!map) return;
@@ -593,6 +614,7 @@ onMounted(() => {
   renderRouteMarkers(props.canyonRouteMarkers, props.selectedRouteId);
   // Handle routes restored from URL (?route=...) — watcher fires before map exists
   syncNearbyAnchor(props.nearbyAnchor);
+  focusSearchResults();
 });
 
 watch(() => props.canyons, renderMarkers);
@@ -896,6 +918,8 @@ watch(
 }
 
 .layer-icon {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   color: #6c8ef5;
 }
@@ -975,6 +999,21 @@ watch(
   font-size: 0.875rem;
   font-weight: 700;
   color: #fff;
+}
+
+:global(.water-station-marker) {
+  width: 28px;
+  height: 28px;
+  padding: 3px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+:global(.water-station-marker img) {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 :global(.rainfall-cluster) {
