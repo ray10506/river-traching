@@ -1,5 +1,5 @@
 <template>
-  <div class="app-layout">
+  <div class="app-layout" :data-theme="theme">
     <div v-if="loading" class="loading-overlay">
       <span>{{ locale === "en" ? "Loading..." : "載入資料中..." }}</span>
     </div>
@@ -15,7 +15,7 @@
       <div
         :class="[
           'sidebar-wrap',
-          { closed: !sidebarOpen, resizing: isResizing },
+          { closed: !sidebarOpen || activePanel === 'search', resizing: isResizing },
         ]"
         :style="{ width: sidebarWidth + 'px', minWidth: sidebarWidth + 'px' }"
       >
@@ -24,20 +24,29 @@
           :routes-loading="routesLoading"
           :selected-id="selectedId"
           :selected-route-id="selectedRouteId"
+          :selected-station-key="selectedStationKey"
+          :sort-descending="routeSortDescending"
+          :show-station-results="!!stationSearch"
+          :water-stations="stationSearch?.water ?? []"
+          :rainfall-stations="stationSearch?.rainfall ?? []"
           @select="selectedId = $event"
           @close="sidebarOpen = false"
-          @show-detail="detailItem = $event"
+          @toggle-sort="routeSortDescending = !routeSortDescending"
+          @show-detail="openRouteDetail"
+          @select-water-station="selectWaterStationFromSearch"
+          @select-rainfall-station="selectRainfallStationFromSearch"
         />
         <div
-          v-if="sidebarOpen"
+          v-if="sidebarOpen && activePanel !== 'search'"
           class="resize-handle"
           @mousedown="startResize"
         />
       </div>
       <div class="map-container">
         <button
-          v-if="!sidebarOpen"
+          v-if="!sidebarOpen && activePanel !== 'search'"
           class="sidebar-open-btn"
+          :aria-label="locale === 'en' ? 'Expand' : '展開'"
           @click="sidebarOpen = true"
         >
           <svg
@@ -65,12 +74,8 @@
           :search-points="searchPoints"
           :search-panel-open="activePanel === 'search'"
           @select-route="onSelectRoute"
-          @select-water-station="
-            (s, p, d) => (waterStationDetail = { station: s, pos: p, days: 7, distance: d })
-          "
-          @select-rainfall-station="
-            (s, p, d) => (rainfallStationDetail = { station: s, pos: p, distance: d })
-          "
+          @select-water-station="openWaterStation"
+          @select-rainfall-station="openRainfallStation"
         />
       </div>
       <RouteDetail
@@ -104,19 +109,16 @@
         v-model:t="routeFilter.t"
         v-model:drop="routeFilter.drop"
         v-model:gpx="filterGpx"
-        v-model:search-type="searchType"
+        v-model:search-types="searchTypes"
         :selected-region="selectedRegion"
-        :routes="searchQuery.trim() || searchType === 'route' ? filteredRoutes : []"
-        :water-stations="stationSearch?.water ?? []"
-        :rainfall-stations="stationSearch?.rainfall ?? []"
-        @close="activePanel = null"
+        :suggestions="searchSuggestions"
+        :result-count="searchResultCount"
+        @close="cancelSearch"
         @confirm="confirmSearch"
+        @select-suggestion="selectSearchSuggestion"
         @filter-region="toggleRegion($event)"
         @clear-region="selectedRegion = []"
         @clear-all="clearAllFilters"
-        @select-water-station="selectWaterStationFromSearch"
-        @select-rainfall-station="selectRainfallStationFromSearch"
-        @select-route="onSelectRoute($event); activePanel = null"
       />
 
       <!-- Settings panel -->
@@ -136,7 +138,7 @@
             :key="f.label"
             class="filter-chip"
           >
-            <button class="filter-chip-label" @click="activePanel = 'search'">
+            <button class="filter-chip-label" @click="openSearch">
               {{ f.label }}
             </button>
             <button
@@ -162,7 +164,7 @@
             'bar-btn',
             { active: activePanel === 'search' || activeFilters.length > 0 },
           ]"
-          @click="activePanel = activePanel === 'search' ? null : 'search'"
+          @click="activePanel === 'search' ? cancelSearch() : openSearch()"
           :title="locale === 'en' ? 'Search' : '搜尋'"
         >
           <div class="bar-btn-icon">
@@ -189,7 +191,7 @@
         </button>
         <button
           :class="['bar-btn', { active: activePanel === 'settings' }]"
-          @click="activePanel = activePanel === 'settings' ? null : 'settings'"
+          @click="toggleSettings"
           :title="locale === 'en' ? 'Settings' : '設定'"
         >
           <svg
@@ -230,15 +232,58 @@ import { fetchElevation } from "./lib/elevation";
 import type { WaterStation } from "./lib/waterLevel";
 import { rainfallStations, type RainfallStation } from "./lib/rainfall";
 import waterStations from "./data/water-stations.json";
+import { theme } from "./lib/theme";
 
 const sidebarOpen = ref(window.innerWidth > 640);
 const activePanel = ref<"search" | "settings" | null>(null);
 const mapRef = ref<InstanceType<typeof Map> | null>(null);
 
-async function confirmSearch() {
+type SearchSnapshot = {
+  query: string;
+  routeFilter: typeof routeFilter.value;
+  gpx: boolean;
+  types: SearchType[];
+  regions: string[];
+};
+let searchSnapshot: SearchSnapshot | null = null;
+
+function openSearch() {
+  searchSnapshot = {
+    query: searchQuery.value,
+    routeFilter: { ...routeFilter.value },
+    gpx: filterGpx.value,
+    types: [...searchTypes.value],
+    regions: [...selectedRegion.value],
+  };
+  activePanel.value = "search";
+  detailItem.value = null;
+  waterStationDetail.value = null;
+  rainfallStationDetail.value = null;
+}
+
+function cancelSearch() {
+  if (searchSnapshot) {
+    searchQuery.value = searchSnapshot.query;
+    routeFilter.value = searchSnapshot.routeFilter;
+    filterGpx.value = searchSnapshot.gpx;
+    searchTypes.value = searchSnapshot.types;
+    selectedRegion.value = searchSnapshot.regions;
+  }
+  searchSnapshot = null;
   activePanel.value = null;
+}
+
+async function confirmSearch() {
+  searchSnapshot = null;
+  activePanel.value = null;
+  sidebarOpen.value = true;
   await nextTick();
   mapRef.value?.focusSearchResults();
+}
+
+function toggleSettings() {
+  if (activePanel.value === "search") cancelSearch();
+  activePanel.value = activePanel.value === "settings" ? null : "settings";
 }
 const detailItem = ref<{ kind: "canyon" | "route"; data: any } | null>(null);
 const sidebarWidth = ref(280);
@@ -250,6 +295,13 @@ const rainfallStationDetail = ref<{
   pos: { x: number; y: number };
   distance?: number;
 } | null>(null);
+const selectedStationKey = computed(() =>
+  waterStationDetail.value
+    ? `water-${waterStationDetail.value.station.id}`
+    : rainfallStationDetail.value
+      ? `rain-${rainfallStationDetail.value.station.station_id}`
+      : null,
+);
 const searchStationPoint = ref<[number, number] | null>(null);
 
 function isValidLatLng(lat: number, lng: number): boolean {
@@ -323,7 +375,10 @@ const routesLoaded = ref(false);
 const routesLoading = ref(false);
 const routeFilter = ref({ v: "", a: "", t: "", drop: "" });
 const filterGpx = ref(false);
-const searchType = ref<"all" | "route" | "water" | "rainfall">("all");
+const routeSortDescending = ref(false);
+type SearchType = "route" | "water" | "rainfall";
+const searchTypes = ref<SearchType[]>(["route"]);
+const routeOnlySearch = computed(() => searchTypes.value.length === 1 && searchTypes.value[0] === "route");
 
 const selectedId = ref<string | null>(null);
 const searchQuery = ref("");
@@ -394,25 +449,42 @@ const canyonRouteMarkers = computed(() => {
 });
 
 function onSelectRoute(id: string) {
-  searchStationPoint.value = null;
   const route = canyonRoutes.value.find((r) => r.id === id);
-  if (route) detailItem.value = { kind: "route", data: route };
+  if (route) openRouteDetail({ kind: "route", data: route });
+}
+
+function openRouteDetail(item: { kind: "canyon" | "route"; data: any }) {
+  searchStationPoint.value = null;
+  waterStationDetail.value = null;
+  rainfallStationDetail.value = null;
+  detailItem.value = item;
 }
 
 function selectWaterStationFromSearch(station: WaterStation) {
   activePanel.value = null;
-  detailItem.value = null;
   searchStationPoint.value = [station.lat, station.lon];
-  waterStationDetail.value = { station, pos: { x: window.innerWidth / 2, y: window.innerHeight / 2 }, days: 7 };
+  openWaterStation(station, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
 }
 
 function selectRainfallStationFromSearch(station: RainfallStation) {
   activePanel.value = null;
-  detailItem.value = null;
   searchStationPoint.value = [station.lat, station.lon];
+  openRainfallStation(station, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+}
+
+function openWaterStation(station: WaterStation, pos: { x: number; y: number }, distance?: number) {
+  if (distance == null) detailItem.value = null;
+  rainfallStationDetail.value = null;
+  waterStationDetail.value = { station, pos, days: 7, distance };
+}
+
+function openRainfallStation(station: RainfallStation, pos: { x: number; y: number }, distance?: number) {
+  if (distance == null) detailItem.value = null;
+  waterStationDetail.value = null;
   rainfallStationDetail.value = {
     station,
-    pos: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    pos,
+    distance,
   };
 }
 
@@ -468,19 +540,21 @@ function normalize(value: unknown): string {
 
 const stationSearch = computed(() => {
   const q = normalize(searchQuery.value.trim());
-  if (searchType.value === 'route' || (searchType.value === 'all' && !q)) return null;
+  const hasWater = searchTypes.value.includes('water');
+  const hasRainfall = searchTypes.value.includes('rainfall');
+  if (!hasWater && !hasRainfall) return null;
   const matches = (fields: string[], region: string) =>
     matchRegion(region, selectedRegion.value) && fields.some(value => normalize(value).includes(q));
   return {
-    water: searchType.value === 'rainfall' ? [] : waterStations.filter(s =>
-      matches([s.id, s.name, s.river, s.address], s.address)),
-    rainfall: searchType.value === 'water' ? [] : rainfallStations.filter(s =>
-      matches([s.station_id, s.name, s.county, s.town], s.county)),
+    water: hasWater ? waterStations.filter(s =>
+      matches([s.id, s.name, s.river, s.address], s.address)) : [],
+    rainfall: hasRainfall ? rainfallStations.filter(s =>
+      matches([s.station_id, s.name, s.county, s.town], s.county)) : [],
   };
 });
 
 const searchPoints = computed(() => {
-  if (searchType.value === 'all' && !activeFilters.value.length) return null;
+  if (routeOnlySearch.value && !activeFilters.value.length) return null;
   return [...canyonRouteMarkers.value, ...(stationSearch.value?.water ?? []), ...(stationSearch.value?.rainfall ?? [])]
     .map(s => [s.lat, s.lon] as [number, number]);
 });
@@ -653,9 +727,12 @@ function parseMeters(val: string): number {
 }
 
 const filteredRoutes = computed(() => {
-  if (searchType.value === "water" || searchType.value === "rainfall") return [];
+  if (!searchTypes.value.includes("route")) return [];
   const q = normalize(searchQuery.value.trim());
   const { v, a, t, drop } = routeFilter.value;
+  const direction = routeSortDescending.value ? -1 : 1;
+  const compareGrade = (a: number, b: number) =>
+    a === 999 ? (b === 999 ? 0 : 1) : b === 999 ? -1 : (a - b) * direction;
   return canyonRoutes.value
     .filter((r) => {
       const hasGps = r["gps"]?.trim();
@@ -683,10 +760,10 @@ const filteredRoutes = computed(() => {
       const bg = b["grading"] ?? "";
       const vA = parseInt(ag.match(/V(\d+)/)?.[1] ?? "999");
       const vB = parseInt(bg.match(/V(\d+)/)?.[1] ?? "999");
-      if (vA !== vB) return vA - vB;
+      if (vA !== vB) return compareGrade(vA, vB);
       const aA = parseInt(ag.match(/A(\d+)/)?.[1] ?? "999");
       const aB = parseInt(bg.match(/A(\d+)/)?.[1] ?? "999");
-      if (aA !== aB) return aA - aB;
+      if (aA !== aB) return compareGrade(aA, aB);
       const T_ORDER: Record<string, number> = {
         I: 1,
         II: 2,
@@ -699,9 +776,60 @@ const filteredRoutes = computed(() => {
         T_ORDER[
           g.split(/\s+/).find((p) => /^(I{1,3}|IV|VI?)$/.test(p)) ?? ""
         ] ?? 999;
-      return findT(ag) - findT(bg);
+      return compareGrade(findT(ag), findT(bg));
     });
 });
+
+type SearchSuggestion = {
+  kind: SearchType;
+  id: string;
+  name: string;
+  location: string;
+};
+
+const searchSuggestions = computed<SearchSuggestion[]>(() => {
+  if (!searchQuery.value.trim()) return [];
+  return [
+    ...filteredRoutes.value.map(route => ({
+      kind: "route" as const,
+      id: route.id,
+      name: route.name,
+      location: route.region ?? "",
+    })),
+    ...(stationSearch.value?.water ?? []).map(station => ({
+      kind: "water" as const,
+      id: station.id,
+      name: station.name,
+      location: station.address || station.river,
+    })),
+    ...(stationSearch.value?.rainfall ?? []).map(station => ({
+      kind: "rainfall" as const,
+      id: station.station_id,
+      name: station.name,
+      location: `${station.county} ${station.town}`,
+    })),
+  ].slice(0, 5);
+});
+
+const searchResultCount = computed(() =>
+  filteredRoutes.value.length
+  + (stationSearch.value?.water.length ?? 0)
+  + (stationSearch.value?.rainfall.length ?? 0),
+);
+
+function selectSearchSuggestion(suggestion: SearchSuggestion) {
+  searchSnapshot = null;
+  activePanel.value = null;
+  sidebarOpen.value = true;
+  if (suggestion.kind === "route") return onSelectRoute(suggestion.id);
+  if (suggestion.kind === "water") {
+    const station = waterStations.find(item => item.id === suggestion.id);
+    if (station) selectWaterStationFromSearch(station);
+    return;
+  }
+  const station = rainfallStations.find(item => item.station_id === suggestion.id);
+  if (station) selectRainfallStationFromSearch(station);
+}
 
 watch(searchQuery, () => {
   selectedId.value = null;
@@ -711,7 +839,7 @@ function clearAllFilters() {
   searchQuery.value = "";
   routeFilter.value = { v: "", a: "", t: "", drop: "" };
   filterGpx.value = false;
-  searchType.value = "all";
+  searchTypes.value = ["route"];
   selectedRegion.value = [];
   selectedId.value = null;
 }
@@ -727,13 +855,13 @@ const FILTER_KEYS: [FilterKey, string][] = [
 
 const activeFilters = computed(() => {
   const items: { label: string; clear: () => void }[] = [];
-  if (searchType.value !== "all") {
+  if (!routeOnlySearch.value) {
     const labels = locale.value === "en"
       ? { route: "Routes", water: "Water stations", rainfall: "Rainfall stations" }
       : { route: "路線", water: "水位站", rainfall: "雨量站" };
     items.push({
-      label: labels[searchType.value],
-      clear: () => (searchType.value = "all"),
+      label: searchTypes.value.map(type => labels[type]).join(locale.value === "en" ? " + " : "、"),
+      clear: () => (searchTypes.value = ["route"]),
     });
   }
   if (searchQuery.value.trim())
@@ -967,7 +1095,7 @@ const activeFilters = computed(() => {
   background: none;
   border: none;
   color: #888;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   padding: 6px 16px;

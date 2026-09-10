@@ -18,7 +18,7 @@
             >{{ kindLabel }}</span
           >
         </div>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="$emit('close')">✕</button>
       </div>
 
       <div class="panel-body">
@@ -683,7 +683,7 @@ ${trksegs}
   color: #666;
   font-size: 1rem;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 8px;
   border-radius: 4px;
 }
 .close-btn:hover {

@@ -11,7 +11,7 @@
             <span class="river-badge">{{ station.river || '—' }}</span>
             <span v-if="distance != null" class="dist-badge">{{ locale === 'en' ? 'From route' : '距路線' }} {{ distance.toFixed(1) }} km</span>
           </div>
-          <button class="close-btn" @click="$emit('close')">✕</button>
+          <button class="close-btn" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="$emit('close')">✕</button>
         </div>
 
         <div class="period-row">
@@ -96,11 +96,12 @@ const ARROW_HALF_H = 8
 const ARROW_SAFE_PAD = 24
 const popupWidth = computed(() => Math.min(480, window.innerWidth - MARGIN * 2))
 const estimatedHeight = computed(() => loading.value || error.value ? 220 : 600)
-const arrowSide = computed(() => props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth ? 'arrow-left' : 'arrow-right')
+const openOnRight = computed(() => props.distance == null && props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth)
+const arrowSide = computed(() => openOnRight.value ? 'arrow-left' : 'arrow-right')
 const popupLayout = computed(() => {
   const width = popupWidth.value
   const height = Math.min(estimatedHeight.value, Math.max(120, window.innerHeight - MARGIN * 2))
-  const onRight = props.pos.x + CARD_OFFSET + width + MARGIN <= window.innerWidth
+  const onRight = openOnRight.value
   let left = onRight ? props.pos.x + CARD_OFFSET : props.pos.x - CARD_OFFSET - width
   let top = props.pos.y - 13 - 44
   left = clamp(left, MARGIN, window.innerWidth - width - MARGIN)
@@ -265,7 +266,6 @@ const chartSeries = computed<ChartSeries[]>(() => {
   position: fixed;
   inset: 0;
   z-index: 1999;
-  background: rgba(0, 0, 0, 0.4);
 }
 
 .popup {
@@ -315,11 +315,7 @@ const chartSeries = computed<ChartSeries[]>(() => {
 }
 
 /* ── Mobile: bottom sheet ── */
-@media (max-width: 600px) {
-  .card-overlay {
-    background: rgba(0, 0, 0, 0.5);
-  }
-
+@media (max-width: 640px) {
   .popup {
     width: 100%;
     max-width: 100%;
@@ -339,16 +335,6 @@ const chartSeries = computed<ChartSeries[]>(() => {
   .arrow { display: none; }
 
   .drag-handle { display: block; }
-
-  /* Larger touch targets in the header */
-  .close-btn {
-    padding: 8px 10px;
-    min-width: 44px;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
 }
 
 .panel-header {
@@ -426,7 +412,7 @@ const chartSeries = computed<ChartSeries[]>(() => {
   color: #666;
   font-size: 1rem;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 8px;
   border-radius: 4px;
 }
 .close-btn:hover { background: #2a2a4a; color: #fff; }

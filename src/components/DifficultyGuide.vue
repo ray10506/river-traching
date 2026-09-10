@@ -4,7 +4,7 @@
       <div class="modal">
         <div class="modal-header">
           <h2>{{ locale === 'en' ? 'Canyon Grading Guide' : '溪降難度分級說明' }}</h2>
-          <button class="close-btn" @click="$emit('close')">✕</button>
+          <button class="close-btn" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="$emit('close')">✕</button>
         </div>
 
         <div class="modal-body" v-if="loading" style="display:flex;align-items:center;justify-content:center;color:#888;min-height:200px">
@@ -102,8 +102,8 @@ const ropeLevel  = computed(() => props.records.filter(r => r['type'] === 'rope'
 const waterLevel = computed(() => props.records.filter(r => r['type'] === 'water'))
 const timeLevel  = computed(() => props.records.filter(r => r['type'] === 'time'))
 const starLevel  = computed(() =>
-  props.records.filter(r => r['type'] === 'star').map(r => ({
-    stars: (locale.value === 'en' && r['code'] === '無星') ? '☆' : r['code'],
+  props.records.filter(r => r['type'] === 'star' && r['code'] !== '無星').map(r => ({
+    stars: r['code'],
     name:  localeName(r),
     desc:  localeItems(r)[0] ?? '',
   }))
@@ -154,7 +154,7 @@ const starLevel  = computed(() =>
   color: #888;
   font-size: 1rem;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 8px;
   border-radius: 4px;
 }
 .close-btn:hover { background: #2a2a4a; color: #fff; }
@@ -292,7 +292,7 @@ ul li::before {
 
 .star-row {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   min-width: 480px;
 }
 

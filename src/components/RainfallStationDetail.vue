@@ -3,13 +3,14 @@
     <div class="card-overlay" @click="$emit('close')"></div>
     <div class="popup" :style="popupStyle">
       <div class="arrow" :class="arrowSide" :style="arrowStyle"></div>
+      <div class="drag-handle" aria-hidden="true"></div>
       <div class="popup-header">
         <div class="header-left">
           <span class="name">{{ station.name }}</span>
           <span class="station-id">({{ station.station_id }})</span>
           <span v-if="distance != null" class="dist-badge">{{ locale === 'en' ? 'From route' : '距路線' }} {{ distance.toFixed(1) }} km</span>
         </div>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="$emit('close')">✕</button>
       </div>
 
       <div class="badge-row">
@@ -94,14 +95,13 @@ const estimatedHeight = computed(() => {
   return mode.value === 'live' ? 430 : 520
 })
 
-const arrowSide = computed(() => {
-  return props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth ? 'arrow-left' : 'arrow-right'
-})
+const openOnRight = computed(() => props.distance == null && props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth)
+const arrowSide = computed(() => openOnRight.value ? 'arrow-left' : 'arrow-right')
 
 const popupLayout = computed(() => {
   const width = popupWidth.value
   const height = Math.min(estimatedHeight.value, Math.max(120, window.innerHeight - MARGIN * 2))
-  const onRight = props.pos.x + CARD_OFFSET + width + MARGIN <= window.innerWidth
+  const onRight = openOnRight.value
   let left = onRight ? props.pos.x + CARD_OFFSET : props.pos.x - CARD_OFFSET - width
   let top = props.pos.y - ICON_CENTER_OFFSET_Y - 44
 
@@ -119,8 +119,8 @@ const popupStyle = computed(() => {
   return {
     left: `${left}px`,
     top: `${top}px`,
-    width: `${width}px`,
-    maxHeight: `${height}px`,
+    width: window.innerWidth <= 640 ? undefined : `${width}px`,
+    maxHeight: window.innerWidth <= 640 ? undefined : `${height}px`,
     minHeight: loading.value || error.value ? `${height}px` : undefined,
   }
 })
@@ -281,7 +281,7 @@ onMounted(fetchData)
   color: #666;
   font-size: 0.8rem;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 8px;
   border-radius: 4px;
   flex-shrink: 0;
   line-height: 1;
@@ -407,5 +407,43 @@ onMounted(fetchData)
   color: #aaa;
   text-align: right;
   padding-top: 6px;
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* Drag handle: hidden on desktop, shown on mobile */
+.drag-handle {
+  display: none;
+  width: 40px;
+  height: 4px;
+  background: #2a2a4a;
+  border-radius: 2px;
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+
+/* ── Mobile: bottom sheet ── */
+@media (max-width: 640px) {
+  .popup {
+    width: 100%;
+    max-width: 100%;
+    left: 0 !important;
+    top: auto !important;
+    bottom: 0;
+    max-height: 85dvh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .arrow { display: none; }
+
+  .drag-handle { display: block; }
 }
 </style>

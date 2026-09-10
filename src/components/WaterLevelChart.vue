@@ -10,6 +10,7 @@ import { Chart, registerables, Tooltip } from 'chart.js'
 import type { ChartType, TooltipPositionerFunction } from 'chart.js'
 import type { ChartSeries } from '../lib/chart'
 import { taipeiParts } from '../lib/waterLevel'
+import { theme } from '../lib/theme'
 
 Chart.register(...registerables)
 
@@ -75,6 +76,9 @@ function computeYRange(series: ChartSeries[]) {
 
 function buildConfig() {
   const labels = props.series[0]?.points.map(p => formatLabel(p.time)) ?? []
+  const textColor = theme.value === 'light' ? '#475569' : '#ccc'
+  const mutedColor = theme.value === 'light' ? '#64748b' : '#888'
+  const gridColor = theme.value === 'light' ? '#dbe2ea' : '#2a2a4a'
 
   return {
     type: props.type,
@@ -101,7 +105,7 @@ function buildConfig() {
       maintainAspectRatio: false,
       interaction: { mode: 'index' as const, intersect: true, axis: 'x' as const },
       plugins: {
-        legend: { labels: { color: '#ccc', font: { size: 11 }, boxWidth: 16 } },
+        legend: { labels: { color: textColor, font: { size: 11 }, boxWidth: 16 } },
         tooltip: {
           position: 'primaryPoint' as const,
           callbacks: {
@@ -114,16 +118,16 @@ function buildConfig() {
       },
       scales: {
         x: {
-          ticks: { color: '#888', maxTicksLimit: 8, autoSkip: true, font: { size: 10 } },
-          grid: { color: '#2a2a4a' },
+          ticks: { color: mutedColor, maxTicksLimit: 8, autoSkip: true, font: { size: 10 } },
+          grid: { color: gridColor },
         },
         y: {
           type: 'linear' as const,
           position: 'left' as const,
           ...computeYRange(props.series),
-          title: { display: !!props.yLabel, text: props.yLabel, color: '#ccc' },
-          ticks: { color: '#888', font: { size: 10 } },
-          grid: { color: '#2a2a4a' },
+          title: { display: !!props.yLabel, text: props.yLabel, color: textColor },
+          ticks: { color: mutedColor, font: { size: 10 } },
+          grid: { color: gridColor },
         },
       },
     },
@@ -137,7 +141,7 @@ function render() {
 }
 
 onMounted(render)
-watch(() => props.series, render, { deep: true })
+watch([() => props.series, theme], render, { deep: true })
 onUnmounted(() => chart?.destroy())
 
 // Native canvas export — no need to redraw the chart a second time for a PNG.

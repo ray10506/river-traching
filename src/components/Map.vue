@@ -12,6 +12,7 @@
     </select>
     <button
       class="layers-fab"
+      :aria-label="locale === 'en' ? 'Layers' : '圖層'"
       @click="showLayersPanel = !showLayersPanel"
       :class="{ active: showLayersPanel }"
     >
@@ -29,7 +30,7 @@
         <span class="layers-title">{{
           locale === "en" ? "Layers" : "圖層"
         }}</span>
-        <button class="layers-close" @click="showLayersPanel = false">✕</button>
+        <button class="layers-close" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="showLayersPanel = false">✕</button>
       </div>
       <div class="layers-list">
         <div class="layer-row">
@@ -45,10 +46,7 @@
           </label>
         </div>
         <div class="layer-row">
-          <svg class="layer-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17 14.5a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.4-1.7A4.5 4.5 0 0 0 7 14.5h10z" />
-            <path d="M8 18v1.5M12 18v1.5M16 18v1.5" />
-          </svg>
+          <img class="layer-icon" src="/rainfall.svg" alt="" />
           <span class="layer-label">{{
             locale === "en" ? "Rain Gauge" : "雨量站"
           }}</span>
@@ -88,7 +86,7 @@
                 : "·"
             }}
           </div>
-          <button class="wp-close" @click="selectedWpIndex = null">✕</button>
+          <button class="wp-close" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="selectedWpIndex = null">✕</button>
         </div>
         <div class="wp-name">
           <span v-if="selectedWp.time" class="wp-time"
@@ -123,6 +121,7 @@
           <div class="wp-nav">
             <button
               class="wp-nav-btn"
+              :aria-label="locale === 'en' ? 'Previous waypoint' : '上一個航點'"
               :disabled="selectedWpIndex === 0"
               @click="goPrev"
             >
@@ -130,6 +129,7 @@
             </button>
             <button
               class="wp-nav-btn"
+              :aria-label="locale === 'en' ? 'Next waypoint' : '下一個航點'"
               :disabled="selectedWpIndex === currentWaypoints.length - 1"
               @click="goNext"
             >
@@ -238,6 +238,7 @@ const tileOptions = [
     labelEn: "Clear",
     url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
     attribution: "© OpenStreetMap contributors © CARTO",
+    maxZoom: 19,
   },
   {
     key: "osm",
@@ -245,6 +246,7 @@ const tileOptions = [
     labelEn: "Standard",
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution: "© OpenStreetMap contributors",
+    maxZoom: 19,
   },
   {
     key: "topo",
@@ -252,6 +254,7 @@ const tileOptions = [
     labelEn: "Terrain",
     url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
     attribution: "© OpenTopoMap contributors",
+    maxZoom: 17,
   },
   {
     key: "satellite",
@@ -259,6 +262,7 @@ const tileOptions = [
     labelEn: "Satellite",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution: "© Esri, Maxar, Earthstar Geographics",
+    maxZoom: 19,
   },
 ];
 
@@ -374,9 +378,9 @@ const waterStationIcon = L.divIcon({
 
 const rainfallStationIcon = L.divIcon({
   className: "",
-  html: '<div style="width:28px;height:28px;background:rgba(255,255,255,0.92);border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1">🌂</div>',
-  iconSize: [28, 26],
-  iconAnchor: [14, 26],
+  html: '<div class="rainfall-station-marker"><img src="/rainfall.svg" alt=""></div>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
 });
 
 function nearestDistKm(lat: number, lon: number, anchor: NearbyAnchor): number {
@@ -539,9 +543,10 @@ function onTileChange(e: Event) {
   selectedTile.value = key;
   const opt = tileOptions.find((t) => t.key === key)!;
   currentTile?.remove();
+  map.setMaxZoom(opt.maxZoom);
   currentTile = L.tileLayer(opt.url, {
     attribution: opt.attribution,
-    maxZoom: 19,
+    maxZoom: opt.maxZoom,
   });
   currentTile.addTo(map);
 }
@@ -592,17 +597,18 @@ const TAIWAN_BOUNDS = L.latLngBounds(
 );
 
 onMounted(() => {
+  const defaultTile = tileOptions.find((t) => t.key === "topo")!;
   map = L.map("map", {
     maxBounds: TAIWAN_BOUNDS,
     maxBoundsViscosity: 1.0,
     minZoom: 8,
+    maxZoom: defaultTile.maxZoom,
     zoomControl: false,
   }).setView([23.9871, 121.6015], 9);
 
-  const defaultTile = tileOptions.find((t) => t.key === "topo")!;
   currentTile = L.tileLayer(defaultTile.url, {
     attribution: defaultTile.attribution,
-    maxZoom: 19,
+    maxZoom: defaultTile.maxZoom,
   });
   currentTile.addTo(map);
 
@@ -990,7 +996,7 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(8, 145, 178, 0.85);
+  background: rgba(14, 116, 144, 0.85);
   border: 2px solid #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   display: flex;
@@ -1001,7 +1007,8 @@ watch(
   color: #fff;
 }
 
-:global(.water-station-marker) {
+:global(.water-station-marker),
+:global(.rainfall-station-marker) {
   width: 28px;
   height: 28px;
   padding: 3px;
@@ -1010,7 +1017,8 @@ watch(
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
-:global(.water-station-marker img) {
+:global(.water-station-marker img),
+:global(.rainfall-station-marker img) {
   display: block;
   width: 100%;
   height: 100%;
@@ -1085,7 +1093,7 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(245, 160, 48, 0.88);
+  background: rgba(156, 83, 13, 0.88);
   border: 2px solid #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   display: flex;
@@ -1100,7 +1108,7 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(108, 142, 245, 0.88);
+  background: rgba(54, 81, 184, 0.88);
   border: 2px solid #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   display: flex;

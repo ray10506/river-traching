@@ -5,7 +5,7 @@
     <!-- Header -->
     <div class="panel-header">
       <div class="header-left">
-        <button v-if="view !== 'main'" class="back-btn" @click="view = 'main'">
+        <button v-if="view !== 'main'" class="back-btn" :aria-label="t('返回', 'Back')" @click="view = 'main'">
           ←
         </button>
         <span class="panel-title">
@@ -18,7 +18,7 @@
           }}
         </span>
       </div>
-      <button class="close-btn" @click="$emit('close')">✕</button>
+      <button class="close-btn" :aria-label="t('關閉', 'Close')" @click="$emit('close')">✕</button>
     </div>
 
     <!-- ── Main view ── -->
@@ -37,6 +37,26 @@
             @click="locale = 'en'"
           >
             English
+          </button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">{{ t("外觀", "Appearance") }}</span>
+        <div class="lang-toggle">
+          <button
+            :class="['lang-opt', { active: theme === 'dark' }]"
+            :aria-pressed="theme === 'dark'"
+            @click="theme = 'dark'"
+          >
+            {{ t("深色", "Dark") }}
+          </button>
+          <button
+            :class="['lang-opt', { active: theme === 'light' }]"
+            :aria-pressed="theme === 'light'"
+            @click="theme = 'light'"
+          >
+            {{ t("淺色", "Light") }}
           </button>
         </div>
       </div>
@@ -205,7 +225,7 @@
               {{ t("選擇檔案", "Choose file") }}
             </button>
             <span class="file-name">{{ rtGpxFile ? rtGpxFile.name : t("未選擇檔案", "No file chosen") }}</span>
-            <button v-if="rtGpxFile" type="button" class="file-clear" @click="clearGpx">✕</button>
+            <button v-if="rtGpxFile" type="button" class="file-clear" :aria-label="t('清除檔案', 'Clear file')" @click="clearGpx">✕</button>
           </div>
           <p v-if="gpxError" class="error-msg" style="margin:0">{{ gpxError }}</p>
 
@@ -237,6 +257,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive } from "vue";
 import { locale, t } from "../lib/locale";
+import { theme } from "../lib/theme";
 
 defineEmits<{ close: [] }>();
 
@@ -382,7 +403,7 @@ async function submitRoute() {
 
 .settings-panel {
   position: fixed;
-  bottom: 84px;
+  bottom: 100px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1201;
@@ -436,7 +457,7 @@ async function submitRoute() {
   color: #555;
   font-size: 0.8rem;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 8px;
   border-radius: 4px;
   transition: color 0.15s;
 }

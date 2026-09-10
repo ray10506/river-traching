@@ -11,14 +11,21 @@
 
     <DifficultyGuide v-if="showGuide" :records="difficultyRecords" :loading="difficultyLoading" @close="showGuide = false" />
 
-    <div class="guide-row">
+    <div v-if="!showStationResults" class="guide-row">
       <button class="guide-btn" @click.stop="openGuide">{{ locale === 'en' ? 'Grading Guide' : '難度說明' }}</button>
     </div>
 
     <!-- 溪降路線列表 -->
     <div v-if="!routesLoading" class="list-count">
-      <span>{{ canyonRoutes.length }} {{ locale === 'en' ? 'routes' : '條路線' }}</span>
-      <span class="sort-note">{{ locale === 'en' ? 'Easiest first' : '由易到難' }}</span>
+      <span>{{ resultCount }} {{ showStationResults ? (locale === 'en' ? 'results' : '筆結果') : (locale === 'en' ? 'routes' : '條路線') }}</span>
+      <button
+        v-if="!showStationResults"
+        class="sort-btn"
+        :title="sortDescending ? (locale === 'en' ? 'Sort easiest first' : '改為由易到難') : (locale === 'en' ? 'Sort hardest first' : '改為由難到易')"
+        @click="$emit('toggleSort')"
+      >
+        {{ sortDescending ? (locale === 'en' ? 'Hardest first' : '由難到易') : (locale === 'en' ? 'Easiest first' : '由易到難') }}
+      </button>
     </div>
     <ul ref="routeListRef" class="canyon-list">
       <li v-if="routesLoading" class="empty">{{ locale === 'en' ? 'Loading...' : '載入中...' }}</li>
@@ -49,7 +56,35 @@
             </div>
           </div>
         </li>
-        <li v-if="canyonRoutes.length === 0" class="empty">{{ locale === 'en' ? 'No routes found, adjust filters' : '找不到符合的路線，請調整篩選條件' }}</li>
+        <li
+          v-for="station in waterStations"
+          :key="`water-${station.id}`"
+          :class="['canyon-item', { active: selectedStationKey === `water-${station.id}` }]"
+        >
+          <button class="station-item" @click.stop="emit('selectWaterStation', station)">
+            <img src="/water-level.svg" class="station-icon" alt="" />
+            <span class="station-copy">
+              <span class="station-kind">{{ locale === 'en' ? 'Water level' : '水位站' }}</span>
+              <strong>{{ station.name }}</strong>
+              <small>{{ station.address || station.river }}</small>
+            </span>
+          </button>
+        </li>
+        <li
+          v-for="station in rainfallStations"
+          :key="`rain-${station.station_id}`"
+          :class="['canyon-item', { active: selectedStationKey === `rain-${station.station_id}` }]"
+        >
+          <button class="station-item" @click.stop="emit('selectRainfallStation', station)">
+            <img src="/rainfall.svg" class="station-icon" alt="" />
+            <span class="station-copy">
+              <span class="station-kind">{{ locale === 'en' ? 'Rainfall' : '雨量站' }}</span>
+              <strong>{{ station.name }}</strong>
+              <small>{{ station.county }} {{ station.town }}</small>
+            </span>
+          </button>
+        </li>
+        <li v-if="resultCount === 0" class="empty">{{ locale === 'en' ? 'No results found, adjust filters' : '找不到符合的結果，請調整篩選條件' }}</li>
       </template>
     </ul>
     <button class="mobile-close-btn" @click="$emit('close')">{{ locale === 'en' ? 'Close ✕' : '收起 ✕' }}</button>
@@ -57,11 +92,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import { vGradeClass } from '../lib/grade'
 import DifficultyGuide from './DifficultyGuide.vue'
 import { pb } from '../lib/pb'
 import { locale } from '../lib/locale'
+import type { WaterStation } from '../lib/waterLevel'
+import type { RainfallStation } from '../lib/rainfall'
 
 const showGuide = ref(false)
 const difficultyRecords = ref<any[]>([])
@@ -86,18 +123,30 @@ const props = defineProps<{
   routesLoading: boolean
   selectedId: string | null
   selectedRouteId: string | null
+  selectedStationKey: string | null
+  sortDescending: boolean
+  showStationResults: boolean
+  waterStations: WaterStation[]
+  rainfallStations: RainfallStation[]
 }>()
 
 const emit = defineEmits<{
   select: [id: string]
   close: []
+  toggleSort: []
   showDetail: [item: { kind: 'canyon' | 'route', data: any }]
+  selectWaterStation: [station: WaterStation]
+  selectRainfallStation: [station: RainfallStation]
 }>()
+
+const resultCount = computed(() =>
+  props.canyonRoutes.length + props.waterStations.length + props.rainfallStations.length,
+)
 
 const routeListRef = ref<HTMLElement | null>(null)
 
-watch(() => props.selectedRouteId, async (id) => {
-  if (!id || !routeListRef.value) return
+watch(() => [props.selectedRouteId, props.selectedStationKey], async ([routeId, stationKey]) => {
+  if ((!routeId && !stationKey) || !routeListRef.value) return
   await nextTick()
   routeListRef.value.querySelector('.canyon-item.active')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 })
@@ -353,11 +402,19 @@ function starsPart(grading: string): string {
   gap: 8px;
 }
 
-.sort-note {
+.sort-btn {
+  padding: 2px 0;
+  border: 0;
+  background: none;
   color: #6c8ef5;
+  font: inherit;
   font-size: 0.72rem;
+  cursor: pointer;
   white-space: nowrap;
 }
+
+.sort-btn:hover { color: #91a8ff; }
+.sort-btn:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
 
 .canyon-item {
   padding: 10px 16px;
@@ -368,6 +425,41 @@ function starsPart(grading: string): string {
 
 .canyon-item:hover { background: #252545; }
 .canyon-item.active { background: #1e2d6b; border-left: 3px solid #6c8ef5; }
+
+.station-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.station-item:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
+
+.station-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.station-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 7px;
+  align-items: baseline;
+}
+
+.station-kind { color: #6c8ef5; font-size: 0.68rem; }
+.station-copy strong { color: #fff; font-size: 0.85rem; overflow-wrap: anywhere; }
+.station-copy small { grid-column: 1 / -1; color: #777; font-size: 0.7rem; overflow-wrap: anywhere; }
 
 .canyon-item-inner {
   display: flex;
@@ -400,7 +492,7 @@ function starsPart(grading: string): string {
 }
 
 .drop-label {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 500;
   color: #9aa3b8;
 }

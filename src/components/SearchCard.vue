@@ -2,12 +2,18 @@
   <div class="search-card">
     <div class="card-header">
       <span class="card-title">{{ locale === 'en' ? 'Search & Filter' : '搜尋篩選' }}</span>
-      <button class="close-btn" @click="$emit('close')">✕</button>
+      <button class="close-btn" :aria-label="locale === 'en' ? 'Close' : '關閉'" @click="$emit('close')">✕</button>
     </div>
 
     <div class="search-label">{{ locale === 'en' ? 'Search in' : '搜尋範圍' }}</div>
     <div class="scope-row">
-      <button v-for="scope in scopes" :key="scope.value" :class="['scope-btn', { active: searchType === scope.value }]" @click="searchType = scope.value">
+      <button
+        v-for="scope in scopes"
+        :key="scope.value"
+        :class="['scope-btn', { active: isScopeActive(scope.value) }]"
+        :aria-pressed="isScopeActive(scope.value)"
+        @click="toggleScope(scope.value)"
+      >
         {{ locale === 'en' ? scope.en : scope.zh }}
       </button>
     </div>
@@ -33,24 +39,35 @@
         :placeholder="searchPlaceholder"
         @keydown.enter.prevent="emit('confirm')"
       />
-      <button v-if="search" class="search-clear" @click="search = ''">✕</button>
+      <button v-if="search" class="search-clear" :aria-label="locale === 'en' ? 'Clear search' : '清除搜尋'" @click="search = ''">✕</button>
     </div>
 
-    <div v-if="searchResults.length" class="search-results">
-      <button v-for="result in searchResults" :key="result.key" class="search-result" @click="selectResult(result)">
-        <span class="result-icon" aria-hidden="true">
-          <img v-if="result.kind === 'route'" src="/favicon-sidebar.png" alt="" />
-          <img v-else-if="result.kind === 'water'" src="/water-level.svg" alt="" />
-          <template v-else>🌂</template>
+    <div v-if="suggestions.length" class="quick-suggestions">
+      <button
+        v-for="suggestion in suggestions"
+        :key="`${suggestion.kind}-${suggestion.id}`"
+        class="quick-suggestion"
+        @click="emit('selectSuggestion', suggestion)"
+      >
+        <span class="suggestion-icon" aria-hidden="true">
+          <img v-if="suggestion.kind === 'route'" src="/favicon-sidebar.png" alt="" />
+          <img v-else-if="suggestion.kind === 'water'" src="/water-level.svg" alt="" />
+          <img v-else src="/rainfall.svg" alt="" />
         </span>
-        <span class="result-type">{{ result.type }}</span>
-        <span class="result-name">{{ result.name }}</span>
-        <small>{{ result.location }}</small>
+        <span class="suggestion-copy">
+          <strong>{{ suggestion.name }}</strong>
+          <small>{{ suggestion.location }}</small>
+        </span>
       </button>
     </div>
 
+    <div class="result-summary" aria-live="polite">
+      {{ locale === 'en' ? `${resultCount} results` : `找到 ${resultCount} 筆結果` }}
+      <span v-if="suggestions.length">{{ locale === 'en' ? ' · Quick suggestions' : ' · 快速建議' }}</span>
+    </div>
+
     <!-- Grade filters -->
-    <div v-if="searchType === 'all' || searchType === 'route'" class="filter-grid">
+    <div v-if="hasRouteScope" class="filter-grid">
       <select v-model="v" class="filter-select">
         <option value="">{{ locale === 'en' ? 'V All' : 'V 全部' }}</option>
         <option v-for="opt in vOptions" :key="opt" :value="opt">{{ opt }}</option>
@@ -73,7 +90,7 @@
     </div>
 
     <!-- GPX filter -->
-    <label v-if="searchType === 'all' || searchType === 'route'" class="gpx-toggle">
+    <label v-if="hasRouteScope" class="gpx-toggle">
       <input type="checkbox" v-model="gpx" />
       <span class="gpx-label">{{ locale === 'en' ? 'Has GPX track' : '有完整 GPX 路線' }}</span>
     </label>
@@ -82,8 +99,8 @@
     <button class="clear-btn" @click="emit('clearAll')">
       {{ locale === 'en' ? 'Clear All Filters' : '清除全部篩選' }}
     </button>
-    <button class="confirm-btn" @click="emit('confirm')">
-      {{ locale === 'en' ? 'Confirm' : '確認' }}
+    <button class="confirm-btn" :disabled="resultCount === 0" @click="emit('confirm')">
+      {{ locale === 'en' ? `Show ${resultCount} results` : `顯示 ${resultCount} 筆結果` }}
     </button>
     </div>
   </div>
@@ -92,14 +109,19 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, computed } from 'vue'
 import { locale, localeRegion } from '../lib/locale'
-import type { WaterStation } from '../lib/waterLevel'
-import type { RainfallStation } from '../lib/rainfall'
 
-const props = defineProps<{
+type SearchType = 'route' | 'water' | 'rainfall'
+type SearchSuggestion = {
+  kind: SearchType
+  id: string
+  name: string
+  location: string
+}
+
+defineProps<{
   selectedRegion: string[]
-  waterStations: WaterStation[]
-  rainfallStations: RainfallStation[]
-  routes: { id: string; name: string; region?: string }[]
+  suggestions: SearchSuggestion[]
+  resultCount: number
 }>()
 
 const emit = defineEmits<{
@@ -108,9 +130,7 @@ const emit = defineEmits<{
   filterRegion: [region: string]
   clearRegion: []
   clearAll: []
-  selectWaterStation: [station: WaterStation]
-  selectRainfallStation: [station: RainfallStation]
-  selectRoute: [id: string]
+  selectSuggestion: [suggestion: SearchSuggestion]
 }>()
 
 const regions = [
@@ -127,7 +147,8 @@ const a = defineModel<string>('a', { required: true })
 const t = defineModel<string>('t', { required: true })
 const drop = defineModel<string>('drop', { required: true })
 const gpx = defineModel<boolean>('gpx', { required: true })
-const searchType = defineModel<'all' | 'route' | 'water' | 'rainfall'>('searchType', { required: true })
+type SearchScope = 'all' | SearchType
+const searchTypes = defineModel<SearchType[]>('searchTypes', { required: true })
 
 const inputRef = ref<HTMLInputElement | null>(null)
 onMounted(() => nextTick(() => inputRef.value?.focus()))
@@ -137,41 +158,43 @@ const aOptions = ['A1','A2','A3','A4','A5','A6','A7']
 const tOptions = ['I','II','III','IV','V','VI']
 
 const scopes = [
-  { value: 'all' as const, zh: '全部', en: 'All', placeholderZh: '搜尋路線、地名、溪名或測站...', placeholderEn: 'Route, place, river or station...' },
-  { value: 'route' as const, zh: '路線', en: 'Routes', placeholderZh: '搜尋路線、溪名或地名...', placeholderEn: 'Route, canyon or place...' },
-  { value: 'water' as const, zh: '水位站', en: 'Water', placeholderZh: '搜尋水位站、溪名或站號...', placeholderEn: 'Water station, river or ID...' },
-  { value: 'rainfall' as const, zh: '雨量站', en: 'Rain', placeholderZh: '搜尋雨量站、地名或站號...', placeholderEn: 'Rainfall station, place or ID...' },
+  { value: 'all' as const, zh: '全部', en: 'All' },
+  { value: 'route' as const, zh: '路線', en: 'Routes' },
+  { value: 'water' as const, zh: '水位站', en: 'Water' },
+  { value: 'rainfall' as const, zh: '雨量站', en: 'Rain' },
 ]
 
-const searchPlaceholder = computed(() => {
-  const scope = scopes.find(s => s.value === searchType.value) ?? scopes[0]
-  return locale.value === 'en' ? scope.placeholderEn : scope.placeholderZh
-})
+const allSelected = computed(() => searchTypes.value.length === 3)
+const hasRouteScope = computed(() => searchTypes.value.includes('route'))
 
-type SearchResult =
-  | { kind: 'route'; key: string; type: string; name: string; location: string; id: string }
-  | { kind: 'water'; key: string; type: string; name: string; location: string; station: WaterStation }
-  | { kind: 'rainfall'; key: string; type: string; name: string; location: string; station: RainfallStation }
-
-const searchResults = computed<SearchResult[]>(() => {
-  const results: SearchResult[] = []
-  for (const route of props.routes) {
-    results.push({ kind: 'route', key: `route-${route.id}`, type: locale.value === 'en' ? 'Route' : '路線', name: route.name, location: route.region ?? '', id: route.id })
-  }
-  for (const station of props.waterStations) {
-      results.push({ kind: 'water', key: `water-${station.id}`, type: locale.value === 'en' ? 'Water level' : '水位站', name: station.name, location: station.address || station.river, station })
-  }
-  for (const station of props.rainfallStations) {
-      results.push({ kind: 'rainfall', key: `rain-${station.station_id}`, type: locale.value === 'en' ? 'Rainfall' : '雨量站', name: station.name, location: `${station.county} ${station.town}`, station })
-  }
-  return results
-})
-
-function selectResult(result: SearchResult) {
-  if (result.kind === 'route') emit('selectRoute', result.id)
-  else if (result.kind === 'rainfall') emit('selectRainfallStation', result.station)
-  else emit('selectWaterStation', result.station)
+function isScopeActive(scope: SearchScope) {
+  return scope === 'all' ? allSelected.value : !allSelected.value && searchTypes.value.includes(scope)
 }
+
+function toggleScope(scope: SearchScope) {
+  if (scope === 'all') {
+    searchTypes.value = ['route', 'water', 'rainfall']
+    return
+  }
+  if (allSelected.value) {
+    searchTypes.value = [scope]
+    return
+  }
+  if (searchTypes.value.includes(scope)) {
+    if (searchTypes.value.length > 1) searchTypes.value = searchTypes.value.filter(type => type !== scope)
+  } else {
+    searchTypes.value = [...searchTypes.value, scope]
+  }
+}
+
+const searchPlaceholder = computed(() => {
+  if (allSelected.value) return locale.value === 'en' ? 'Route, place, river or station...' : '搜尋路線、地名、溪名或測站...'
+  if (searchTypes.value.length > 1) return locale.value === 'en' ? 'Search selected categories...' : '搜尋所選範圍...'
+  const scope = searchTypes.value[0]
+  if (scope === 'route') return locale.value === 'en' ? 'Route, canyon or place...' : '搜尋路線、溪名或地名...'
+  if (scope === 'water') return locale.value === 'en' ? 'Water station, river or ID...' : '搜尋水位站、溪名或站號...'
+  return locale.value === 'en' ? 'Rainfall station, place or ID...' : '搜尋雨量站、地名或站號...'
+})
 </script>
 
 <style scoped>
@@ -212,7 +235,7 @@ function selectResult(result: SearchResult) {
   color: #555;
   font-size: 0.8rem;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 8px;
   border-radius: 4px;
   transition: color 0.15s;
 }
@@ -252,12 +275,36 @@ function selectResult(result: SearchResult) {
 }
 .search-clear:hover { color: #aaa; }
 
-.search-results {
-  display: flex;
-  flex-direction: column;
+.quick-suggestions {
+  display: grid;
   gap: 4px;
-  max-height: 240px;
-  overflow-y: auto;
+}
+
+.quick-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  background: #12122a;
+  color: #ddd;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-suggestion:hover { border-color: #6c8ef5; }
+.quick-suggestion:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
+.suggestion-icon { width: 22px; display: grid; place-items: center; flex-shrink: 0; }
+.suggestion-icon img { width: 20px; height: 20px; object-fit: contain; }
+.suggestion-copy { min-width: 0; display: grid; gap: 1px; }
+.suggestion-copy strong { overflow-wrap: anywhere; font-size: 0.78rem; }
+.suggestion-copy small { color: #888; font-size: 0.68rem; overflow-wrap: anywhere; }
+
+.result-summary {
+  color: #aaa;
+  font-size: 0.72rem;
 }
 
 .search-label {
@@ -285,25 +332,6 @@ function selectResult(result: SearchResult) {
 }
 .scope-btn:hover { border-color: #6c8ef5; color: #ddd; }
 .scope-btn.active { border-color: #6c8ef5; background: #1e2d6b; color: #fff; font-weight: 600; }
-
-.search-result {
-  display: grid;
-  grid-template-columns: 22px auto minmax(0, 1fr);
-  gap: 2px 8px;
-  padding: 8px;
-  border: 1px solid #2a2a4a;
-  border-radius: 6px;
-  background: #12122a;
-  color: #ddd;
-  text-align: left;
-  cursor: pointer;
-}
-.search-result:hover { border-color: #6c8ef5; }
-.result-type { color: #6c8ef5; font-size: 0.7rem; }
-.result-icon { grid-row: span 2; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-.result-icon img { width: 20px; height: 20px; object-fit: contain; }
-.result-name { overflow-wrap: anywhere; }
-.search-result small { grid-column: 2 / -1; color: #aaa; font-size: 0.7rem; overflow-wrap: anywhere; }
 
 .filter-grid {
   display: grid;
@@ -384,6 +412,7 @@ function selectResult(result: SearchResult) {
 .search-actions .clear-btn { flex: 1; width: auto; }
 .confirm-btn { padding: 8px 20px; min-height: 40px; border: 1px solid #6c8ef5; border-radius: 8px; background: #6c8ef5; color: #12122a; font-weight: 700; cursor: pointer; }
 .confirm-btn:hover { background: #8aa5ff; }
+.confirm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .search-actions button:focus-visible { outline: 2px solid #b5c6ff; outline-offset: 2px; }
 
 @media (max-width: 640px) {
