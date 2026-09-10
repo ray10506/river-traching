@@ -16,11 +16,12 @@ const stations = data
   .map(r => {
     const [x, y] = r.locationbytwd97_xy.trim().split(/\s+/).map(Number)
     const { lat, lon } = twd97ToWgs84(x, y)
+    const address = String(r.locationaddress ?? '').trim()
     return {
       id: r.basinidentifier,
       name: r.observatoryname,
       river: r.rivername || '',
-      address: r.locationaddress || '',
+      address: address === '0' ? '' : address,
       lat: Math.round(lat * 1e6) / 1e6,
       lon: Math.round(lon * 1e6) / 1e6,
       alert1: r.alertlevel1 ? parseFloat(r.alertlevel1) : null,

@@ -75,7 +75,9 @@ function computeYRange(series: ChartSeries[]) {
 }
 
 function buildConfig() {
-  const labels = props.series[0]?.points.map(p => formatLabel(p.time)) ?? []
+  const labels = props.series[0]?.points.map(p =>
+    props.type === 'bar' && p.value == null ? [formatLabel(p.time), '—'] : formatLabel(p.time),
+  ) ?? []
   const textColor = theme.value === 'light' ? '#475569' : '#ccc'
   const mutedColor = theme.value === 'light' ? '#64748b' : '#888'
   const gridColor = theme.value === 'light' ? '#dbe2ea' : '#2a2a4a'
@@ -118,7 +120,7 @@ function buildConfig() {
       },
       scales: {
         x: {
-          ticks: { color: mutedColor, maxTicksLimit: 8, autoSkip: true, font: { size: 10 } },
+          ticks: { color: mutedColor, maxTicksLimit: 8, autoSkip: props.type !== 'bar', maxRotation: 0, font: { size: 10 } },
           grid: { color: gridColor },
         },
         y: {

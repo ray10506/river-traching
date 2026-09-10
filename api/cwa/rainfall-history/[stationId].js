@@ -26,8 +26,12 @@ export default async function handler(req, res) {
   const stnType = /^\d+$/.test(stationId) ? 'cwb' : `auto_${stationId.slice(0, 2)}`
 
   const now = new Date()
-  const start = new Date(now.getTime() - days * 86400000)
-  start.setHours(0, 0, 0, 0)
+  const today = taipeiIso(now).slice(0, 10)
+  const todayStart = new Date(`${today}T00:00:00+08:00`)
+  const dates = Array.from({ length: days }, (_, index) =>
+    taipeiIso(new Date(todayStart.getTime() - (days - index) * 86400000)).slice(0, 10),
+  )
+  const start = new Date(`${dates[0]}T00:00:00+08:00`)
 
   const end = new Date(now)
   end.setMonth(end.getMonth() + 1, 0)
@@ -63,21 +67,22 @@ export default async function handler(req, res) {
         date: String(item.DataDate ?? '').slice(0, 10),
         value: parseRain(item.Precipitation?.Accumulation),
       }))
-      .filter(item => item.date && item.value != null)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(-days)
+      .filter(item => item.date)
 
-    if (!values.length) return res.status(404).json({ error: json.day?.message || 'No rainfall history for station' })
+    const byDate = new Map(values.map(item => [item.date, item.value]))
+    const daily = dates.map(date => ({ date, value: byDate.get(date) ?? null }))
+    const available = daily.filter(item => item.value != null)
+    if (!available.length) return res.status(404).json({ error: json.day?.message || 'No rainfall history for station' })
 
     res.status(200).json({
       stationId,
       days,
-      total: Math.round(values.reduce((sum, item) => sum + item.value, 0) * 10) / 10,
+      total: Math.round(available.reduce((sum, item) => sum + item.value, 0) * 10) / 10,
       unit: 'mm',
-      from: values[0].date,
-      to: values[values.length - 1].date,
-      daysIncluded: values.length,
-      daily: values,
+      from: dates[0],
+      to: dates[dates.length - 1],
+      daysIncluded: available.length,
+      daily,
     })
   } catch (err) {
     res.status(502).json({ error: String(err) })

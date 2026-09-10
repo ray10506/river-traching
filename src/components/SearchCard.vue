@@ -55,8 +55,8 @@
           <img v-else src="/rainfall.svg" alt="" />
         </span>
         <span class="suggestion-copy">
-          <strong>{{ suggestion.name }}</strong>
-          <small>{{ suggestion.location }}</small>
+          <strong :class="{ matched: matchesQuery(suggestion.name) }">{{ suggestion.name }}</strong>
+          <small :class="{ matched: matchesQuery(suggestion.location) }">{{ suggestion.location }}</small>
         </span>
       </button>
     </div>
@@ -152,6 +152,11 @@ const searchTypes = defineModel<SearchType[]>('searchTypes', { required: true })
 
 const inputRef = ref<HTMLInputElement | null>(null)
 onMounted(() => nextTick(() => inputRef.value?.focus()))
+
+function matchesQuery(value: string): boolean {
+  const q = search.value.trim().toLowerCase().replace(/臺/g, '台')
+  return !!q && value.toLowerCase().replace(/臺/g, '台').includes(q)
+}
 
 const vOptions = ['V1','V2','V3','V4','V5','V6','V7']
 const aOptions = ['A1','A2','A3','A4','A5','A6','A7']
@@ -301,6 +306,8 @@ const searchPlaceholder = computed(() => {
 .suggestion-copy { min-width: 0; display: grid; gap: 1px; }
 .suggestion-copy strong { overflow-wrap: anywhere; font-size: 0.78rem; }
 .suggestion-copy small { color: #888; font-size: 0.68rem; overflow-wrap: anywhere; }
+.suggestion-copy .matched { color: #b5c6ff; font-weight: 700; }
+.suggestion-copy .matched { color: #b5c6ff; font-weight: 700; }
 
 .result-summary {
   color: #aaa;

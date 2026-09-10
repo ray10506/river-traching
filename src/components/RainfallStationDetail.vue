@@ -1,6 +1,5 @@
 <template>
   <Teleport to="body">
-    <div class="card-overlay" @click="$emit('close')"></div>
     <div class="popup" :style="popupStyle">
       <div class="arrow" :class="arrowSide" :style="arrowStyle"></div>
       <div class="drag-handle" aria-hidden="true"></div>
@@ -26,6 +25,15 @@
           <button class="retry-btn" @click="fetchData">{{ locale === 'en' ? 'Retry' : '重試' }}</button>
         </template>
         <template v-else-if="mode === 'live' && data">
+          <div class="status-card" :class="`status-${rainStatus.tone}`">
+            <div class="status-title">{{ rainStatus.title }}</div>
+            <div class="rain-summary">
+              <span><strong>{{ data.past24hr ?? '—' }}</strong> mm<small>{{ locale === 'en' ? '24 hr' : '24 小時' }}</small></span>
+              <span><strong>{{ data.past3days ?? '—' }}</strong> mm<small>{{ locale === 'en' ? '72 hr' : '72 小時' }}</small></span>
+            </div>
+            <div class="status-note">{{ rainStatus.note }}</div>
+            <div class="safety-note">{{ locale === 'en' ? 'Rainfall alone does not determine canyon safety.' : '雨量不能單獨判斷溪谷是否安全。' }}</div>
+          </div>
           <div class="row" v-for="item in rainItems" :key="item.label">
             <span class="row-label">{{ item.label }}</span>
             <span class="row-value">{{ item.value }}</span>
@@ -48,7 +56,11 @@
             :height-px="180"
             :y-label="locale === 'en' ? 'Daily accumulated rainfall (mm)' : '每日累積雨量 (mm)'"
           />
-          <div class="update-time">{{ currentHistory.daysIncluded }} {{ locale === 'en' ? 'days included' : '日資料' }}</div>
+          <div class="update-time">
+            {{ locale === 'en'
+              ? `Last ${currentHistory.days} complete days · ${currentHistory.daysIncluded} available`
+              : `最近 ${currentHistory.days} 個完整日，目前取得 ${currentHistory.daysIncluded} 日` }}
+          </div>
         </template>
       </div>
     </div>
@@ -92,7 +104,7 @@ const popupWidth = computed(() => {
 
 const estimatedHeight = computed(() => {
   if (loading.value || error.value) return 160
-  return mode.value === 'live' ? 430 : 520
+  return mode.value === 'live' ? 580 : 520
 })
 
 const openOnRight = computed(() => props.distance == null && props.pos.x + CARD_OFFSET + popupWidth.value + MARGIN <= window.innerWidth)
@@ -131,15 +143,45 @@ const rainItems = computed(() => {
   if (!data.value) return []
   const en = locale.value === 'en'
   return [
-    { label: en ? '10 min'   : '十分鐘', value: `${data.value.past10min} mm` },
-    { label: en ? '1 hr'     : '一小時',  value: `${data.value.past1hr} mm` },
-    { label: en ? '3 hr'     : '三小時',  value: `${data.value.past3hr} mm` },
-    { label: en ? '6 hr'     : '六小時',  value: `${data.value.past6hr} mm` },
-    { label: en ? '12 hr'    : '12 小時', value: `${data.value.past12hr} mm` },
-    { label: en ? '24 hr'    : '24 小時', value: `${data.value.past24hr} mm` },
-    { label: en ? '2 days'   : '二日',    value: `${data.value.past2days} mm` },
-    { label: en ? '3 days'   : '三日',    value: `${data.value.past3days} mm` },
+    { label: en ? '10 min'   : '十分鐘', value: `${data.value.past10min ?? '—'} mm` },
+    { label: en ? '1 hr'     : '一小時',  value: `${data.value.past1hr ?? '—'} mm` },
+    { label: en ? '3 hr'     : '三小時',  value: `${data.value.past3hr ?? '—'} mm` },
+    { label: en ? '6 hr'     : '六小時',  value: `${data.value.past6hr ?? '—'} mm` },
+    { label: en ? '12 hr'    : '12 小時', value: `${data.value.past12hr ?? '—'} mm` },
+    { label: en ? '24 hr'    : '24 小時', value: `${data.value.past24hr ?? '—'} mm` },
+    { label: en ? '2 days'   : '二日',    value: `${data.value.past2days ?? '—'} mm` },
+    { label: en ? '3 days'   : '三日',    value: `${data.value.past3days ?? '—'} mm` },
   ]
+})
+
+const rainStatus = computed(() => {
+  const rainfall = data.value!
+  const en = locale.value === 'en'
+  if (rainfall.past24hr == null || rainfall.past3hr == null || rainfall.past1hr == null || rainfall.past3days == null) return {
+    tone: 'muted',
+    title: en ? 'Rainfall assessment unavailable' : '暫無法評估雨量',
+    note: en ? 'Insufficient rainfall data. Check official observations and forecasts.' : '雨量資料不足，請查閱官方觀測與預報。',
+  }
+  if (rainfall.past24hr >= 200 || rainfall.past3hr >= 100) return {
+    tone: 'danger',
+    title: en ? 'Extremely heavy rain threshold reached' : '已達豪雨雨量標準',
+    note: en ? 'Avoid entering streams and monitor official warnings.' : '請避免進入溪流，並查看官方警特報。',
+  }
+  if (rainfall.past24hr >= 80 || rainfall.past1hr >= 40) return {
+    tone: 'warning',
+    title: en ? 'Heavy rain threshold reached' : '已達大雨雨量標準',
+    note: en ? 'Stream levels may rise rapidly.' : '溪流水位可能快速上升。',
+  }
+  if (rainfall.past3days >= 40) return {
+    tone: 'watch',
+    title: en ? 'Recent accumulated rainfall' : '近三日有累積降雨',
+    note: en ? 'Check upstream rainfall, water levels and forecasts.' : '請搭配上游雨量、水位與預報判斷。',
+  }
+  return {
+    tone: 'normal',
+    title: en ? 'Lower recent rainfall' : '近期累積雨量較低',
+    note: en ? 'Conditions can still differ across the catchment.' : '集水區各處狀況仍可能不同。',
+  }
 })
 
 const currentHistory = computed(() => mode.value === 'live' ? null : historyCache.value[mode.value])
@@ -198,12 +240,6 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.card-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1999;
-}
-
 .popup {
   position: fixed;
   z-index: 2000;
@@ -317,6 +353,46 @@ onMounted(fetchData)
   overflow-y: auto;
   min-height: 0;
 }
+
+.status-card {
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: #171733;
+}
+
+.status-title { color: #fff; font-size: 0.82rem; font-weight: 700; }
+.status-note { color: #bbb; font-size: 0.7rem; margin-top: 6px; }
+.status-normal { border-color: #2f8f5b; }
+.status-watch { border-color: #b59b2a; }
+.status-warning { border-color: #c86a35; }
+.status-danger { border-color: #e05c5c; }
+
+:global(html[data-theme='light']) .status-normal { border-color: #2f8f5b; }
+:global(html[data-theme='light']) .status-watch { border-color: #9a821f; }
+:global(html[data-theme='light']) .status-warning { border-color: #b65d2d; }
+:global(html[data-theme='light']) .status-danger { border-color: #c84646; }
+
+.rain-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.rain-summary span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px;
+  color: #aaa;
+  font-size: 0.68rem;
+}
+
+.rain-summary strong { color: #5b9cf6; font-size: 1.15rem; }
+.rain-summary small { width: 100%; color: #888; font-size: 0.64rem; }
+.safety-note { color: #777; font-size: 0.64rem; margin-top: 6px; }
 
 .row {
   display: flex;

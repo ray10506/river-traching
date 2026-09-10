@@ -1,13 +1,13 @@
 export interface RainfallData {
   stationName: string
-  past10min: number
-  past1hr: number
-  past3hr: number
-  past6hr: number
-  past12hr: number
-  past24hr: number
-  past2days: number
-  past3days: number
+  past10min: number | null
+  past1hr: number | null
+  past3hr: number | null
+  past6hr: number | null
+  past12hr: number | null
+  past24hr: number | null
+  past2days: number | null
+  past3days: number | null
   updateTime: string
 }
 
@@ -18,7 +18,7 @@ export interface RainfallHistoryData {
   from: string
   to: string
   daysIncluded: number
-  daily: Array<{ date: string; value: number }>
+  daily: Array<{ date: string; value: number | null }>
 }
 
 export async function fetchRainfallData(stationId: string): Promise<RainfallData> {
@@ -30,9 +30,9 @@ export async function fetchRainfallData(stationId: string): Promise<RainfallData
   if (!station) throw new Error('查無雨量資料')
 
   const el = station.RainfallElement ?? {}
-  const get = (key: string): number => {
+  const get = (key: string): number | null => {
     const v = parseFloat(el[key]?.Precipitation ?? '-1')
-    return !Number.isFinite(v) || v < 0 ? 0 : Math.round(v * 10) / 10
+    return !Number.isFinite(v) || v < 0 ? null : Math.round(v * 10) / 10
   }
 
   const rawTime = station.ObsTime?.DateTime ?? ''

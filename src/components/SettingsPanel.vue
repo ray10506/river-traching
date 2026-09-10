@@ -412,7 +412,7 @@ async function submitRoute() {
   overflow-y: auto;
   background: #1a1a2e;
   border: 1px solid #2a2a4a;
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   padding: 20px;
   display: flex;
@@ -522,7 +522,7 @@ async function submitRoute() {
   padding: 12px 14px;
   background: #131328;
   border: 1px solid #2a2a4a;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   text-align: left;
   transition: border-color 0.15s;
@@ -625,7 +625,7 @@ select.field-input {
   font-size: 0.72rem;
   padding: 5px 4px;
   border: 1px solid #2a2a4a;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #131328;
   color: #888;
   cursor: pointer;
@@ -681,7 +681,7 @@ select.field-input {
   padding: 5px 12px;
   background: #131328;
   border: 1px solid #2a2a4a;
-  border-radius: 6px;
+  border-radius: 8px;
   color: #aaa;
   font-size: 0.78rem;
   cursor: pointer;

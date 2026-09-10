@@ -53,18 +53,6 @@
               {{ maxEle }}m</span
             >
           </div>
-          <div v-if="d.region" class="row">
-            <span class="row-label">{{
-              locale === "en" ? "Region" : "地區"
-            }}</span>
-            <span class="row-value">{{ d.region }}</span>
-          </div>
-          <div v-if="weatherForecastUrl" class="row">
-            <span class="row-label">{{ locale === "en" ? "Weather" : "天氣" }}</span>
-            <a class="row-value forecast-link" :href="weatherForecastUrl" target="_blank" rel="noopener">
-              {{ weatherForecastUrl?.includes('TID=') ? (locale === "en" ? "72-hour forecast" : "72 小時預報") : (locale === "en" ? "County forecast" : "縣市預報") }} ↗
-            </a>
-          </div>
           <div v-if="d.grading" class="row">
             <span class="row-label">{{
               locale === "en" ? "Grade" : "分級"
@@ -105,6 +93,45 @@
                 >{{ gradingStars }}</span
               >
             </span>
+          </div>
+          <div v-if="d.region" class="row">
+            <span class="row-label">{{
+              locale === "en" ? "Region" : "地區"
+            }}</span>
+            <span class="row-value">{{ d.region }}</span>
+          </div>
+          <div v-if="weatherForecastUrl" class="row">
+            <span class="row-label">{{ locale === "en" ? "Weather" : "天氣" }}</span>
+            <a class="row-value forecast-link" :href="weatherForecastUrl" target="_blank" rel="noopener">
+              {{ weatherForecastUrl?.includes('TID=') ? (locale === "en" ? "72-hour forecast" : "72 小時預報") : (locale === "en" ? "County forecast" : "縣市預報") }} ↗
+            </a>
+          </div>
+          <div v-if="nearbyWater || nearbyRainfall" class="hydrology-section">
+            <div class="hydrology-title">{{ locale === 'en' ? 'Nearby hydrology' : '鄰近水文' }}</div>
+            <button
+              v-if="nearbyWater"
+              class="hydrology-row"
+              @click="emit('selectWaterStation', nearbyWater.station, nearbyWater.distance)"
+            >
+              <img src="/water-level.svg" alt="" />
+              <span class="hydrology-copy">
+                <strong>{{ nearbyWater.station.name }}</strong>
+                <small :class="`tone-${waterSummary.tone}`">{{ waterSummary.text }}</small>
+              </span>
+              <span class="hydrology-distance">{{ nearbyWater.distance.toFixed(1) }} km</span>
+            </button>
+            <button
+              v-if="nearbyRainfall"
+              class="hydrology-row"
+              @click="emit('selectRainfallStation', nearbyRainfall.station, nearbyRainfall.distance)"
+            >
+              <img src="/rainfall.svg" alt="" />
+              <span class="hydrology-copy">
+                <strong>{{ nearbyRainfall.station.name }}</strong>
+                <small :class="`tone-${rainfallSummary.tone}`">{{ rainfallSummary.text }}</small>
+              </span>
+              <span class="hydrology-distance">{{ nearbyRainfall.distance.toFixed(1) }} km</span>
+            </button>
           </div>
           <div v-if="d.max_drop" class="row">
             <span class="row-label">{{
@@ -227,12 +254,23 @@ import { computed, ref, watch, onMounted, nextTick } from "vue";
 import { clamp } from "../lib/clamp";
 import { vGradeClass } from "../lib/grade";
 import { locale } from "../lib/locale";
+import { fetchWaterLevel, type WaterStation } from "../lib/waterLevel";
+import { fetchRainfallData } from "../lib/rainfallData";
+import type { RainfallStation } from "../lib/rainfall";
+
+type NearbyStation<T> = { station: T; distance: number };
 
 const props = defineProps<{
   item: { kind: "canyon" | "route"; data: any };
   initPos?: { x: number; y: number } | null;
+  nearbyWater?: NearbyStation<WaterStation> | null;
+  nearbyRainfall?: NearbyStation<RainfallStation> | null;
 }>();
-defineEmits<{ close: [] }>();
+const emit = defineEmits<{
+  close: [];
+  selectWaterStation: [station: WaterStation, distance: number];
+  selectRainfallStation: [station: RainfallStation, distance: number];
+}>();
 
 const panelRef = ref<HTMLElement | null>(null);
 const pos = ref<{ x: number; y: number } | null>(props.initPos ?? null);
@@ -288,6 +326,60 @@ function startDrag(e: MouseEvent) {
 }
 
 const d = computed(() => props.item.data);
+
+const waterReading = ref<number | null | undefined>(undefined);
+const rainfall24hr = ref<number | null | undefined>(undefined);
+let hydrologyRequestId = 0;
+
+async function loadNearbyHydrology() {
+  const requestId = ++hydrologyRequestId;
+  waterReading.value = props.nearbyWater ? undefined : null;
+  rainfall24hr.value = props.nearbyRainfall ? undefined : null;
+  const [water, rain] = await Promise.allSettled([
+    props.nearbyWater ? fetchWaterLevel(props.nearbyWater.station.id) : Promise.resolve(null),
+    props.nearbyRainfall ? fetchRainfallData(props.nearbyRainfall.station.station_id) : Promise.resolve(null),
+  ]);
+  if (requestId !== hydrologyRequestId) return;
+  const waterPoints = water.status === 'fulfilled' ? water.value?.points : null;
+  waterReading.value = waterPoints?.length ? (waterPoints[waterPoints.length - 1].value ?? null) : null;
+  rainfall24hr.value = rain.status === 'fulfilled' ? (rain.value?.past24hr ?? null) : null;
+}
+
+watch(
+  () => [props.item.data.id, props.nearbyWater?.station.id, props.nearbyRainfall?.station.station_id],
+  loadNearbyHydrology,
+  { immediate: true },
+);
+
+const waterSummary = computed(() => {
+  const value = waterReading.value;
+  const en = locale.value === 'en';
+  if (value === undefined) return { tone: 'muted', text: en ? 'Loading current level…' : '正在取得即時水位…' };
+  if (value == null || !props.nearbyWater) return { tone: 'muted', text: en ? 'Current level unavailable' : '即時水位暫時無法取得' };
+  const s = props.nearbyWater.station;
+  const label = s.alert1 != null && value >= s.alert1 ? (en ? 'Alert Lv.1' : '一級警戒')
+    : s.alert2 != null && value >= s.alert2 ? (en ? 'Alert Lv.2' : '二級警戒')
+      : s.alert3 != null && value >= s.alert3 ? (en ? 'Alert Lv.3' : '三級警戒')
+        : [s.alert1, s.alert2, s.alert3].some(level => level != null) ? (en ? 'Below alert level' : '低於警戒水位')
+          : (en ? 'No alert level set' : '未設定警戒水位');
+  const tone = s.alert1 != null && value >= s.alert1 ? 'danger'
+    : s.alert2 != null && value >= s.alert2 ? 'warning'
+      : s.alert3 != null && value >= s.alert3 ? 'watch' : 'normal';
+  return { tone, text: `${label} · ${value} m` };
+});
+
+const rainfallSummary = computed(() => {
+  const value = rainfall24hr.value;
+  const en = locale.value === 'en';
+  if (value === undefined) return { tone: 'muted', text: en ? 'Loading 24-hour rainfall…' : '正在取得 24 小時雨量…' };
+  if (value == null) return { tone: 'muted', text: en ? '24-hour rainfall unavailable' : '24 小時雨量暫時無法取得' };
+  const tone = value >= 200 ? 'danger' : value >= 80 ? 'warning' : value > 0 ? 'watch' : 'normal';
+  const label = value >= 200 ? (en ? 'Extremely heavy rain' : '累積雨量偏高')
+    : value >= 80 ? (en ? 'Heavy rain' : '請留意累積雨量')
+      : value > 0 ? (en ? 'Recent rainfall' : '近期有降雨')
+        : (en ? 'Lower recent rainfall' : '近期降雨較少');
+  return { tone, text: `${label} · 24h ${value} mm` };
+});
 
 const title = computed(() => d.value.name);
 const kindLabel = computed(() =>
@@ -795,6 +887,39 @@ ${trksegs}
   border-color: #6c8ef5;
   background: #1e2d6b;
 }
+
+.hydrology-section {
+  padding: 8px 20px;
+  border-bottom: 1px solid #1e1e38;
+}
+
+.hydrology-title { color: #888; font-size: 0.75rem; margin-bottom: 4px; }
+.hydrology-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hydrology-row + .hydrology-row { border-top: 1px solid #1e1e38; }
+.hydrology-row:hover strong { color: #91a8ff; }
+.hydrology-row:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
+.hydrology-row img { width: 24px; height: 24px; object-fit: contain; }
+.hydrology-copy { min-width: 0; display: grid; gap: 2px; }
+.hydrology-copy strong { color: #ddd; font-size: 0.82rem; overflow-wrap: anywhere; }
+.hydrology-copy small { font-size: 0.7rem; }
+.hydrology-distance { color: #999; font-size: 0.72rem; white-space: nowrap; }
+.tone-normal { color: #6abf8a; }
+.tone-watch { color: #d6bd55; }
+.tone-warning { color: #e79a5e; }
+.tone-danger { color: #e87979; }
+.tone-muted { color: #888; }
 
 .grade-stars {
   font-size: 0.75rem;

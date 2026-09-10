@@ -27,10 +27,12 @@
           :selected-station-key="selectedStationKey"
           :sort-descending="routeSortDescending"
           :show-station-results="!!stationSearch"
+          :search-query="searchQuery"
           :water-stations="stationSearch?.water ?? []"
           :rainfall-stations="stationSearch?.rainfall ?? []"
           @select="selectedId = $event"
           @close="sidebarOpen = false"
+          @change-browse-mode="changeBrowseMode"
           @toggle-sort="routeSortDescending = !routeSortDescending"
           @show-detail="openRouteDetail"
           @select-water-station="selectWaterStationFromSearch"
@@ -82,7 +84,11 @@
         v-if="detailItem"
         :item="detailItem"
         :init-pos="cardInitPos"
+        :nearby-water="nearbyWater"
+        :nearby-rainfall="nearbyRainfall"
         @close="detailItem = null"
+        @select-water-station="openNearbyWaterStation"
+        @select-rainfall-station="openNearbyRainfallStation"
       />
       <WaterStationDetail
         v-if="waterStationDetail"
@@ -259,6 +265,18 @@ function openSearch() {
   detailItem.value = null;
   waterStationDetail.value = null;
   rainfallStationDetail.value = null;
+}
+
+function changeBrowseMode(mode: "route" | "hydrology") {
+  if (mode === "hydrology") {
+    openSearch();
+    searchQuery.value = "";
+    searchTypes.value = ["water", "rainfall"];
+    return;
+  }
+  searchQuery.value = "";
+  searchTypes.value = ["route"];
+  activePanel.value = null;
 }
 
 function cancelSearch() {
@@ -438,6 +456,28 @@ const nearbyAnchor = computed((): { lat: number; lon: number; pts?: [number, num
   return { lat: parts[0], lon: parts[1], pts };
 });
 
+function nearestDistanceKm(lat: number, lon: number): number {
+  const anchor = nearbyAnchor.value;
+  if (!anchor) return Infinity;
+  const rad = Math.PI / 180;
+  return [[anchor.lat, anchor.lon], ...(anchor.pts ?? [])].reduce((min, [pLat, pLon]) => {
+    const dLat = (lat - pLat) * rad;
+    const dLon = (lon - pLon) * rad;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(pLat * rad) * Math.cos(lat * rad) * Math.sin(dLon / 2) ** 2;
+    return Math.min(min, 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  }, Infinity);
+}
+
+function nearestStation<T extends { lat: number; lon: number }>(stations: T[]) {
+  const nearest = stations
+    .map(station => ({ station, distance: nearestDistanceKm(station.lat, station.lon) }))
+    .sort((a, b) => a.distance - b.distance)[0];
+  return nearest?.distance <= 20 ? nearest : null;
+}
+
+const nearbyWater = computed(() => nearestStation(waterStations as WaterStation[]));
+const nearbyRainfall = computed(() => nearestStation(rainfallStations));
+
 const canyonRouteMarkers = computed(() => {
   return filteredRoutes.value.flatMap((r) => {
     const gps = r["gps"]?.trim();
@@ -486,6 +526,19 @@ function openRainfallStation(station: RainfallStation, pos: { x: number; y: numb
     pos,
     distance,
   };
+}
+
+function stationScreenPosition(station: { lat: number; lon: number }) {
+  return mapRef.value?.stationScreenPosition(station.lat, station.lon)
+    ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+}
+
+function openNearbyWaterStation(station: WaterStation, distance: number) {
+  openWaterStation(station, stationScreenPosition(station), distance);
+}
+
+function openNearbyRainfallStation(station: RainfallStation, distance: number) {
+  openRainfallStation(station, stationScreenPosition(station), distance);
 }
 
 const REGION_KEYWORDS: Record<string, string[]> = {
@@ -582,7 +635,7 @@ watch(detailItem, (item) => {
 
 // Sync route/search/filter state to URL so results are shareable
 watch(
-  [detailItem, searchQuery, routeFilter, selectedRegion, filterGpx],
+  [detailItem, searchQuery, routeFilter, selectedRegion, filterGpx, searchTypes],
   ([item]) => {
     const url = new URL(location.href);
     if (item?.kind === "route") url.searchParams.set("route", item.data.id);
@@ -590,6 +643,10 @@ watch(
     if (searchQuery.value.trim())
       url.searchParams.set("q", searchQuery.value.trim());
     else url.searchParams.delete("q");
+    const defaultTypes = ["route"];
+    const isDefault = searchTypes.value.length === defaultTypes.length && searchTypes.value.every(t => defaultTypes.includes(t));
+    if (!isDefault) url.searchParams.set("type", searchTypes.value.join(","));
+    else url.searchParams.delete("type");
     for (const k of ["v", "a", "t", "drop"] as const) {
       if (routeFilter.value[k]) url.searchParams.set(k, routeFilter.value[k]);
       else url.searchParams.delete(k);
@@ -705,6 +762,11 @@ onMounted(async () => {
   // Restore filter state from URL before loading
   const sp = new URLSearchParams(location.search);
   if (sp.get("q")) searchQuery.value = sp.get("q")!;
+  if (sp.get("type")) {
+    const valid: SearchType[] = ["route", "water", "rainfall"];
+    const parsed = sp.get("type")!.split(",").filter(t => valid.includes(t as SearchType)) as SearchType[];
+    if (parsed.length) searchTypes.value = parsed;
+  }
   for (const k of ["v", "a", "t", "drop"] as const)
     if (sp.get(k)) routeFilter.value[k] = sp.get(k)!;
   if (sp.get("gpx") === "1") filterGpx.value = true;
@@ -800,7 +862,7 @@ const searchSuggestions = computed<SearchSuggestion[]>(() => {
       kind: "water" as const,
       id: station.id,
       name: station.name,
-      location: station.address || station.river,
+      location: [station.river, station.address].filter(Boolean).join(" · "),
     })),
     ...(stationSearch.value?.rainfall ?? []).map(station => ({
       kind: "rainfall" as const,

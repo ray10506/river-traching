@@ -63,6 +63,10 @@ html[data-theme='light'] :is(.canyon-location, .station-copy small, .suggestion-
 html[data-theme='light'] :is(.row-value, .status-note, .menu-text strong, .file-btn, .file-name, .close-sidebar-btn, .layer-label) {
   color: #334155;
 }
+html[data-theme='light'] :is(.hydrology-title, .hydrology-distance, .tone-muted) { color: #64748b; }
+html[data-theme='light'] .hydrology-copy strong { color: #273449; }
+html[data-theme='light'] :is(.hydrology-section, .hydrology-row + .hydrology-row) { border-color: #c8d2dc; }
+html[data-theme='light'] :is(.station-copy .matched, .suggestion-copy .matched) { color: #3656bd; }
 
 html[data-theme='light'] :is(.canyon-item:hover, .menu-btn:hover) { background: #dce5ed; }
 html[data-theme='light'] .canyon-item.active { background: #d2def2; }

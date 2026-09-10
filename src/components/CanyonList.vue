@@ -9,6 +9,19 @@
       </button>
     </div>
 
+    <div class="browse-switch" role="group" :aria-label="locale === 'en' ? 'Browse content' : '瀏覽內容'">
+      <button
+        :class="['browse-btn', { active: !showStationResults }]"
+        :aria-pressed="!showStationResults"
+        @click="emit('changeBrowseMode', 'route')"
+      >{{ locale === 'en' ? 'Routes' : '路線' }}</button>
+      <button
+        :class="['browse-btn', { active: showStationResults }]"
+        :aria-pressed="showStationResults"
+        @click="emit('changeBrowseMode', 'hydrology')"
+      >{{ locale === 'en' ? 'Hydrology' : '水文監測' }}</button>
+    </div>
+
     <DifficultyGuide v-if="showGuide" :records="difficultyRecords" :loading="difficultyLoading" @close="showGuide = false" />
 
     <div v-if="!showStationResults" class="guide-row">
@@ -65,8 +78,12 @@
             <img src="/water-level.svg" class="station-icon" alt="" />
             <span class="station-copy">
               <span class="station-kind">{{ locale === 'en' ? 'Water level' : '水位站' }}</span>
-              <strong>{{ station.name }}</strong>
-              <small>{{ station.address || station.river }}</small>
+              <strong :class="{ matched: matchesQuery(station.name) }">{{ station.name }}</strong>
+              <small>
+                <span :class="{ matched: matchesQuery(station.river) }">{{ station.river || '—' }}</span>
+                <span v-if="station.river && station.address"> · </span>
+                <span :class="{ matched: matchesQuery(station.address) }">{{ station.address }}</span>
+              </small>
             </span>
           </button>
         </li>
@@ -79,8 +96,8 @@
             <img src="/rainfall.svg" class="station-icon" alt="" />
             <span class="station-copy">
               <span class="station-kind">{{ locale === 'en' ? 'Rainfall' : '雨量站' }}</span>
-              <strong>{{ station.name }}</strong>
-              <small>{{ station.county }} {{ station.town }}</small>
+              <strong :class="{ matched: matchesQuery(station.name) }">{{ station.name }}</strong>
+              <small :class="{ matched: matchesQuery(`${station.county} ${station.town}`) }">{{ station.county }} {{ station.town }}</small>
             </span>
           </button>
         </li>
@@ -126,6 +143,7 @@ const props = defineProps<{
   selectedStationKey: string | null
   sortDescending: boolean
   showStationResults: boolean
+  searchQuery: string
   waterStations: WaterStation[]
   rainfallStations: RainfallStation[]
 }>()
@@ -134,6 +152,7 @@ const emit = defineEmits<{
   select: [id: string]
   close: []
   toggleSort: []
+  changeBrowseMode: [mode: 'route' | 'hydrology']
   showDetail: [item: { kind: 'canyon' | 'route', data: any }]
   selectWaterStation: [station: WaterStation]
   selectRainfallStation: [station: RainfallStation]
@@ -142,6 +161,11 @@ const emit = defineEmits<{
 const resultCount = computed(() =>
   props.canyonRoutes.length + props.waterStations.length + props.rainfallStations.length,
 )
+
+function matchesQuery(value: unknown): boolean {
+  const q = props.searchQuery.trim().toLowerCase().replace(/臺/g, '台')
+  return !!q && String(value ?? '').toLowerCase().replace(/臺/g, '台').includes(q)
+}
 
 const routeListRef = ref<HTMLElement | null>(null)
 
@@ -199,6 +223,45 @@ function starsPart(grading: string): string {
   line-height: 1.2;
   white-space: nowrap;
 }
+
+.browse-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 10px 16px;
+  padding: 3px;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  background: #12122a;
+  flex-shrink: 0;
+}
+
+.browse-btn {
+  min-height: 32px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #888;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.browse-btn.active {
+  background: #1e2d6b;
+  color: #fff;
+  font-weight: 600;
+}
+
+.browse-btn:focus-visible { outline: 2px solid #6c8ef5; outline-offset: 2px; }
+
+:global(html[data-theme='light']) .browse-switch {
+  background: #d7e0e8;
+  border-color: #bcc7d1;
+}
+
+:global(html[data-theme='light']) .browse-btn { color: #64748b; }
+:global(html[data-theme='light']) .browse-btn.active { background: #4f6fd8; color: #fff; }
 
 .route-filters {
   padding: 10px 16px;
@@ -460,6 +523,7 @@ function starsPart(grading: string): string {
 .station-kind { color: #6c8ef5; font-size: 0.68rem; }
 .station-copy strong { color: #fff; font-size: 0.85rem; overflow-wrap: anywhere; }
 .station-copy small { grid-column: 1 / -1; color: #777; font-size: 0.7rem; overflow-wrap: anywhere; }
+.station-copy .matched { color: #b5c6ff; font-weight: 700; }
 
 .canyon-item-inner {
   display: flex;

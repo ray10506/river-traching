@@ -1,6 +1,5 @@
 <template>
   <Teleport to="body">
-    <div class="card-overlay" @click="$emit('close')"></div>
     <div class="popup" :style="popupStyle" @click.stop>
         <div class="arrow" :class="arrowSide" :style="arrowStyle"></div>
         <!-- Drag-handle affordance on mobile bottom sheet -->
@@ -260,12 +259,6 @@ const chartSeries = computed<ChartSeries[]>(() => {
 @keyframes sheet-up {
   from { transform: translateY(100%); }
   to   { transform: translateY(0); }
-}
-
-.card-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1999;
 }
 
 .popup {

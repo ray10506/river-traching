@@ -535,7 +535,13 @@ function focusSearchResults() {
   });
 }
 watch(() => props.searchPoints, focusSearchResults, { flush: 'post' });
-defineExpose({ focusSearchResults });
+function stationScreenPosition(lat: number, lon: number) {
+  if (!map) return null;
+  const rect = document.getElementById("map")!.getBoundingClientRect();
+  const point = map.latLngToContainerPoint([lat, lon]);
+  return { x: rect.left + point.x, y: rect.top + point.y };
+}
+defineExpose({ focusSearchResults, stationScreenPosition });
 
 function onTileChange(e: Event) {
   if (!map) return;
